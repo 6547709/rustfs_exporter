@@ -1,0 +1,39 @@
+{
+  "title": "RustFS / Replication Trend",
+  "uid": "rustfs-replication-trend",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "bucket",
+        "type": "query",
+        "datasource": "VictoriaMetrics",
+        "query": "label_values(rustfs_replication_pending_bytes, bucket)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries", "title": "Pending (bytes)", "gridPos": {"x":0,"y":0,"w":12,"h":8},
+      "targets": [{"expr": "rustfs_replication_pending_bytes{bucket=~\"$bucket\"}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries", "title": "Completed rate (bytes/s)", "gridPos": {"x":12,"y":0,"w":12,"h":8},
+      "targets": [{"expr": "rate(rustfs_replication_completed_bytes[5m])", "refId": "A"}]
+    },
+    {
+      "type": "timeseries", "title": "Current Bandwidth", "gridPos": {"x":0,"y":8,"w":12,"h":8},
+      "targets": [{"expr": "rustfs_replication_bandwidth_current_bytes{bucket=~\"$bucket\"}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries", "title": "Failed rate (count/s)", "gridPos": {"x":12,"y":8,"w":12,"h":8},
+      "targets": [{"expr": "rate(rustfs_replication_failed_count[5m])", "refId": "A"}]
+    }
+  ]
+}

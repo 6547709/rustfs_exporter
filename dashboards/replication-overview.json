@@ -1,0 +1,24 @@
+{
+  "title": "RustFS / Replication Overview",
+  "uid": "rustfs-replication-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "type": "table", "title": "Per-Bucket Replication", "gridPos": {"x":0,"y":0,"w":24,"h":12},
+      "targets": [
+        {"expr": "rustfs_replication_pending_bytes",     "refId": "A", "format": "table", "instant": true},
+        {"expr": "rustfs_replication_pending_count",     "refId": "B", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_completed_bytes",   "refId": "C", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_completed_count",   "refId": "D", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_failed_count",                "refId": "E", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_bandwidth_current_bytes",     "refId": "F", "format": "table", "instant": true, "hide": true}
+      ],
+      "transformations": [
+        {"id": "merge"}
+      ]
+    }
+  ]
+}
