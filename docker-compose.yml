@@ -1,0 +1,67 @@
+version: "3.8"
+
+services:
+  rustfs:
+    image: ${RUSTFS_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
+      RUSTFS_VOLUMES: /data
+    volumes:
+      - ./data:/data
+
+  exporter:
+    image: local-mirror/rustfs-exporter:latest
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    environment:
+      RUSTFS_ENDPOINT: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
+      RUSTFS_REGION: us-east-1
+      RUSTFS_EXPORTER_LISTEN: ":9090"
+      RUSTFS_EXPORTER_SCRAPE_INTERVAL: 30s
+    depends_on:
+      - rustfs
+
+  vm:
+    image: victoriametrics/victoria-metrics:latest
+    restart: unless-stopped
+    command:
+      - "-storageDataPath=/storage"
+      - "-retentionPeriod=30d"
+      - "-promscrape.config=/etc/vm/scrape.yml"
+      - "-memory.allowedPercent=40"
+    volumes:
+      - ./conf/vm-scrape.yml:/etc/vm/scrape.yml:ro
+      - vm-data:/storage
+    ports:
+      - "8429:8429"
+    depends_on:
+      - exporter
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASS:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+    volumes:
+      - ./conf/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./conf/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./conf/grafana-alerts.yaml:/etc/grafana/provisioning/alerting/rules.yaml:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - vm
+
+volumes:
+  vm-data:
+  grafana-data:
