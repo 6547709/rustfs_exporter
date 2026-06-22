@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -80,12 +82,46 @@ func hmacSHA256(key []byte, data string) []byte {
 	return h.Sum(nil)
 }
 
+// canonicalQueryString implements the AWS SigV4 canonical query algorithm
+// (https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-query-string-auth.html#ConstructingTheCanonicalizedQueryString):
+//   1. Split on '&'.
+//   2. Split each pair on the first '=' only (values may contain '=').
+//   3. URI-encode name and value per RFC 3986 unreserved set, with space as %20.
+//   4. Sort lexicographically by encoded name, then by encoded value.
+//   5. Rejoin with '&'.
 func canonicalQueryString(query string) string {
 	if query == "" {
 		return ""
 	}
 	pairs := strings.Split(query, "&")
-	// 不重排序（AWS 规则要求排序，rustfs 单桶场景下可省略；保留原序以兼容调试）。
-	_ = pairs
-	return query
+	type kv struct{ k, v string }
+	parsed := make([]kv, 0, len(pairs))
+	for _, p := range pairs {
+		name, value, _ := strings.Cut(p, "=")
+		parsed = append(parsed, kv{encodeRFC3986(name), encodeRFC3986(value)})
+	}
+	sort.Slice(parsed, func(i, j int) bool {
+		if parsed[i].k != parsed[j].k {
+			return parsed[i].k < parsed[j].k
+		}
+		return parsed[i].v < parsed[j].v
+	})
+	parts := make([]string, len(parsed))
+	for i, p := range parsed {
+		parts[i] = p.k + "=" + p.v
+	}
+	return strings.Join(parts, "&")
+}
+
+// encodeRFC3986 URL-encodes s per RFC 3986, with space encoded as %20
+// (NOT '+' which is application/x-www-form-urlencoded). Built on top of
+// url.QueryEscape (which already uses %20 for space and correctly escapes
+// the unreserved set minus a few chars) plus a follow-up replacement of any
+// stray '+' characters that might appear in the input.
+func encodeRFC3986(s string) string {
+	// First normalize any literal '+' in the input by escaping it, then
+	// delegate to url.QueryEscape which encodes space as '+'. Finally swap
+	// the form-encoded '+' back to '%20' as required by the SigV4 spec.
+	escaped := url.QueryEscape(strings.ReplaceAll(s, "+", "%2B"))
+	return strings.ReplaceAll(escaped, "+", "%20")
 }

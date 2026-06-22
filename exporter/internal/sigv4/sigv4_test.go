@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+// TestCanonicalQueryString_SortsByName verifies that query parameters are
+// reordered by name (then value) per the AWS SigV4 canonical query spec.
+// Input order must not affect output order.
+func TestCanonicalQueryString_SortsByName(t *testing.T) {
+	got := canonicalQueryString("b=2&a=1&c=3")
+	want := "a=1&b=2&c=3"
+	if got != want {
+		t.Errorf("canonicalQueryString order mismatch:\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
+// TestCanonicalQueryString_EncodesSpecialChars verifies that names and values
+// are URI-encoded per RFC 3986 (unreserved set), with space encoded as %20
+// (NOT '+' which is form encoding). Also checks that '=' inside a value is
+// preserved (split on first '=' only).
+func TestCanonicalQueryString_EncodesSpecialChars(t *testing.T) {
+	got := canonicalQueryString("key with space=val&special=!@#&eq=a=b")
+	// "key with space" -> "key%20with%20space"
+	// "val"            -> "val"
+	// "special"        -> "special"
+	// "!@#"            -> "%21%40%23"
+	// "eq"             -> "eq"
+	// "a=b"            -> "a%3Db"  ('=' inside value must be encoded)
+	want := "eq=a%3Db&key%20with%20space=val&special=%21%40%23"
+	if got != want {
+		t.Errorf("canonicalQueryString encoding mismatch:\n  got:  %q\n  want: %q", got, want)
+	}
+}
+
 // 来自 AWS SigV4 文档示例的固定向量，验证算法正确性。
 // 参考：docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-test-suite.html
 func TestSign_KnownVector(t *testing.T) {
