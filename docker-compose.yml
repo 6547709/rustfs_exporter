@@ -29,7 +29,7 @@ services:
       - rustfs
 
   vm:
-    image: victoriametrics/victoria-metrics:latest
+    image: victoriametrics/victoria-metrics:v1.146.0
     restart: unless-stopped
     command:
       - "-storageDataPath=/storage"
@@ -45,7 +45,7 @@ services:
       - exporter
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.4.0
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASS:-admin}

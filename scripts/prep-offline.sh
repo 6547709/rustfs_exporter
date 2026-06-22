@@ -7,8 +7,8 @@ mkdir -p images
 declare -A IMAGES=(
   [rustfs]="${RUSTFS_IMAGE:-local-mirror/rustfs:latest}"
   [exporter]="local-mirror/rustfs-exporter:latest"
-  [vm]="victoriametrics/victoria-metrics:latest"
-  [grafana]="grafana/grafana:latest"
+  [vm]="victoriametrics/victoria-metrics:v1.146.0"
+  [grafana]="grafana/grafana:10.4.0"
 )
 
 # exporter 需要先构建（如未构建）
