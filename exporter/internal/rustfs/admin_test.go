@@ -2,6 +2,7 @@ package rustfs
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -66,6 +67,47 @@ func TestAdminClient_ReplicationMetrics(t *testing.T) {
 	}
 	if bw := got.TotalBandwidthNow(); bw != 3072.5 {
 		t.Errorf("TotalBandwidthNow=%v, want 3072.5", bw)
+	}
+}
+
+func TestAdminClient_ReplicationMetrics_404ReturnsErrNoReplication(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"ReplicationConfigurationNotFoundError"}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c, err := NewAdminClient(srv.URL, "us-east-1", "ak", "sk", TLSOptions{})
+	if err != nil {
+		t.Fatalf("NewAdminClient: %v", err)
+	}
+	got, err := c.ReplicationMetrics(context.Background(), "rustfs18")
+	if !errors.Is(err, ErrNoReplication) {
+		t.Fatalf("err=%v, want ErrNoReplication", err)
+	}
+	if got == nil {
+		t.Fatal("got nil stats")
+	}
+	if len(got.Stats) != 0 {
+		t.Errorf("stats len=%d, want 0", len(got.Stats))
+	}
+}
+
+func TestAdminClient_ReplicationMetrics_500ReturnsRawError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c, err := NewAdminClient(srv.URL, "us-east-1", "ak", "sk", TLSOptions{})
+	if err != nil {
+		t.Fatalf("NewAdminClient: %v", err)
+	}
+	_, err = c.ReplicationMetrics(context.Background(), "alpha")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if errors.Is(err, ErrNoReplication) {
+		t.Errorf("5xx should not be ErrNoReplication")
 	}
 }
 

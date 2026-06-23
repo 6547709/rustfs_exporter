@@ -3,6 +3,7 @@ package rustfs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/local/rustfs-exporter/internal/sigv4"
 )
+
+// ErrNoReplication 表示该桶未启用跨区域复制（目标端 rustfs 或源端未配置）。
+// 调用方应跳过（不记日志、不导出 replication 指标），这是预期状态而非错误。
+var ErrNoReplication = errors.New("replication not configured for bucket")
 
 // AdminClient 复用同一组 S3 凭证调用 rustfs admin API。
 type AdminClient struct {
@@ -136,10 +141,14 @@ func (c *AdminClient) ReplicationMetrics(ctx context.Context, bucket string) (*R
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		// 目标端 rustfs 或源端未配置复制：admin 返回 404。
+		// 调用方应跳过——这是正常状态，不算错误。
+		return &ReplicationStats{Stats: map[string]PerARNStat{}}, ErrNoReplication
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		// 未启用复制的桶返回 ReplicationConfigurationNotFoundError；视为 empty stats
-		return &ReplicationStats{Stats: map[string]PerARNStat{}}, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
 	}
 	var out ReplicationStats
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {

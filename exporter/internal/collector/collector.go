@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -56,6 +57,10 @@ func (w *ScrapeWorker) cycle(ctx context.Context) {
 		if err != nil {
 			if ctx.Err() != nil {
 				return
+			}
+			// 目标端 / 未配置复制 = 正常状态，沉默跳过。
+			if errors.Is(err, rustfs.ErrNoReplication) {
+				continue
 			}
 			log.Printf("replication %s: %v", b, err)
 			continue
