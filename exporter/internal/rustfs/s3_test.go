@@ -27,7 +27,10 @@ func TestS3Client_ListBuckets_ParsesXML(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewS3Client(srv.URL, "us-east-1", "ak", "sk")
+	c, err := NewS3Client(srv.URL, "us-east-1", "ak", "sk", TLSOptions{})
+	if err != nil {
+		t.Fatalf("NewS3Client: %v", err)
+	}
 	got, err := c.ListBuckets(context.Background())
 	if err != nil {
 		t.Fatalf("ListBuckets: %v", err)
@@ -49,7 +52,10 @@ func TestS3Client_ListBuckets_PropagatesError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewS3Client(srv.URL, "us-east-1", "ak", "sk")
+	c, err := NewS3Client(srv.URL, "us-east-1", "ak", "sk", TLSOptions{})
+	if err != nil {
+		t.Fatalf("NewS3Client: %v", err)
+	}
 	if _, err := c.ListBuckets(context.Background()); err == nil {
 		t.Fatal("expected error on 500")
 	}

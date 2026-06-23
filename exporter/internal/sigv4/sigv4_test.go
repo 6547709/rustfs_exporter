@@ -39,7 +39,7 @@ func TestCanonicalQueryString_EncodesSpecialChars(t *testing.T) {
 func TestSign_KnownVector(t *testing.T) {
 	// 文档示例: GET /?Action=ListUsers&Version=2010-05-08
 	// 简化：使用标准 SigV4 步骤，校验生成的 Authorization 头含 5 段。
-	auth, date := Sign(
+	auth, date, contentSHA := Sign(
 		"GET",
 		"example.amazonaws.com",
 		"/",
@@ -62,10 +62,13 @@ func TestSign_KnownVector(t *testing.T) {
 	if !strings.Contains(auth, "Signature=") {
 		t.Errorf("auth missing Signature: %s", auth)
 	}
+	if contentSHA == "" {
+		t.Error("contentSHA256 empty")
+	}
 }
 
 func TestSign_S3(t *testing.T) {
-	auth, date := Sign(
+	auth, date, _ := Sign(
 		"GET",
 		"rustfs.local",
 		"/",
@@ -81,5 +84,39 @@ func TestSign_S3(t *testing.T) {
 	}
 	if !strings.Contains(date, "T") || !strings.HasSuffix(date, "Z") {
 		t.Errorf("date format wrong: %s", date)
+	}
+}
+
+// TestSign_IncludesContentSha256 验证 Authorization 头的 SignedHeaders 列表
+// 必须包含 x-amz-content-sha256（AWS SigV4 spec 要求）。
+func TestSign_IncludesContentSha256(t *testing.T) {
+	auth, _, contentSHA := Sign(
+		"GET", "example.amazonaws.com", "/", "",
+		"us-east-1", "s3", nil,
+		"AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+	)
+	want := "SignedHeaders=host;x-amz-content-sha256;x-amz-date"
+	if !strings.Contains(auth, want) {
+		t.Errorf("auth missing %q: %s", want, auth)
+	}
+	// 空 body 时返回空字符串的 SHA-256
+	wantEmpty := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	if contentSHA != wantEmpty {
+		t.Errorf("contentSHA256 = %q, want %q", contentSHA, wantEmpty)
+	}
+}
+
+// TestSign_NonEmptyBody 验证非空 body 时，contentSHA256 等于其 hex sha256。
+func TestSign_NonEmptyBody(t *testing.T) {
+	body := []byte("hello")
+	_, _, contentSHA := Sign(
+		"POST", "example.amazonaws.com", "/", "",
+		"us-east-1", "s3", body,
+		"AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+	)
+	// sha256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+	want := "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	if contentSHA != want {
+		t.Errorf("contentSHA256 = %q, want %q", contentSHA, want)
 	}
 }

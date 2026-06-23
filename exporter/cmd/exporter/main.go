@@ -29,8 +29,21 @@ func main() {
 	reg := prometheus.NewRegistry()
 	m.Register(reg)
 
-	s3 := rustfs.NewS3Client(cfg.Endpoint, cfg.Region, cfg.AccessKey, cfg.SecretKey)
-	adm := rustfs.NewAdminClient(cfg.Endpoint, cfg.Region, cfg.AccessKey, cfg.SecretKey)
+	tlsOpts := rustfs.TLSOptions{
+		CACertPath: cfg.CACertPath,
+		SkipVerify: cfg.TLSSkipVerify,
+	}
+
+	s3, err := rustfs.NewS3Client(cfg.Endpoint, cfg.Region, cfg.AccessKey, cfg.SecretKey, tlsOpts)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "s3 client:", err)
+		os.Exit(1)
+	}
+	adm, err := rustfs.NewAdminClient(cfg.Endpoint, cfg.Region, cfg.AccessKey, cfg.SecretKey, tlsOpts)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "admin client:", err)
+		os.Exit(1)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

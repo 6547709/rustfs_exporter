@@ -50,10 +50,26 @@ func (c *Collector) UpdateReplication(bucket string, s *rustfs.ReplicationStats)
 	if s == nil {
 		return
 	}
+	// rustfs 在顶层 aggregated 字段（replica_size/replicated_size 等）有时为 0，
+	// 真实数据在 per-ARN 的 stats map 里。优先聚合 per-ARN，回退到顶层字段。
+	var perARNSumReplicatedSize, perARNSumReplicatedCount int64
+	for _, arn := range s.Stats {
+		perARNSumReplicatedSize += arn.ReplicatedSize
+		perARNSumReplicatedCount += arn.ReplicatedCount
+	}
+	completedBytes := perARNSumReplicatedSize
+	if completedBytes == 0 {
+		completedBytes = s.ReplicatedSize
+	}
+	completedCount := perARNSumReplicatedCount
+	if completedCount == 0 {
+		completedCount = s.ReplicatedCount
+	}
+
 	c.PendingBytes.WithLabelValues(bucket).Set(float64(s.ReplicaSize))
 	c.PendingCount.WithLabelValues(bucket).Set(float64(s.ReplicaCount))
-	c.CompletedBytes.WithLabelValues(bucket).Set(float64(s.ReplicatedSize))
-	c.CompletedCount.WithLabelValues(bucket).Set(float64(s.ReplicatedCount))
+	c.CompletedBytes.WithLabelValues(bucket).Set(float64(completedBytes))
+	c.CompletedCount.WithLabelValues(bucket).Set(float64(completedCount))
 	c.FailedCount.WithLabelValues(bucket).Set(float64(s.TotalFailedCount()))
 	c.BandwidthNow.WithLabelValues(bucket).Set(s.TotalBandwidthNow())
 	c.QueueCurrent.WithLabelValues(bucket).Set(float64(s.QStat.Current.Bytes))

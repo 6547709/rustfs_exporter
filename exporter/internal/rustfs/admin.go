@@ -20,14 +20,19 @@ type AdminClient struct {
 	HTTP      *http.Client
 }
 
-func NewAdminClient(ep, region, ak, sk string) *AdminClient {
+// NewAdminClient 构造一个 Admin API 客户端。tlsOpts 用于 HTTPS 证书校验配置。
+func NewAdminClient(ep, region, ak, sk string, tlsOpts TLSOptions) (*AdminClient, error) {
+	httpClient, err := BuildHTTPClient(tlsOpts, 10*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("admin client: %w", err)
+	}
 	return &AdminClient{
 		Endpoint:  ep,
 		Region:    region,
 		AccessKey: ak,
 		SecretKey: sk,
-		HTTP:      &http.Client{Timeout: 10 * time.Second},
-	}
+		HTTP:      httpClient,
+	}, nil
 }
 
 // ----- Replication metrics -----
@@ -120,9 +125,10 @@ func (c *AdminClient) ReplicationMetrics(ctx context.Context, bucket string) (*R
 	if err != nil {
 		return nil, err
 	}
-	auth, date := sigv4.Sign("GET", req.URL.Host, path, query, c.Region, "s3", nil, c.AccessKey, c.SecretKey)
+	auth, date, contentSHA := sigv4.Sign("GET", req.URL.Host, path, query, c.Region, "s3", nil, c.AccessKey, c.SecretKey)
 	req.Header.Set("Authorization", auth)
 	req.Header.Set("X-Amz-Date", date)
+	req.Header.Set("X-Amz-Content-Sha256", contentSHA)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

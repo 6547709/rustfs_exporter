@@ -41,7 +41,10 @@ func TestAdminClient_ReplicationMetrics(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewAdminClient(srv.URL, "us-east-1", "ak", "sk")
+	c, err := NewAdminClient(srv.URL, "us-east-1", "ak", "sk", TLSOptions{})
+	if err != nil {
+		t.Fatalf("NewAdminClient: %v", err)
+	}
 	got, err := c.ReplicationMetrics(context.Background(), "alpha")
 	if err != nil {
 		t.Fatalf("ReplicationMetrics: %v", err)
@@ -84,7 +87,10 @@ func TestAdminClient_Health(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewAdminClient(srv.URL, "us-east-1", "ak", "sk")
+	c, err := NewAdminClient(srv.URL, "us-east-1", "ak", "sk", TLSOptions{})
+	if err != nil {
+		t.Fatalf("NewAdminClient: %v", err)
+	}
 	got, err := c.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health: %v", err)

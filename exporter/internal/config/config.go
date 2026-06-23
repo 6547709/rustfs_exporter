@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -14,6 +15,8 @@ type Config struct {
 	Region         string
 	Listen         string
 	ScrapeInterval time.Duration
+	CACertPath     string
+	TLSSkipVerify  bool
 }
 
 func Load() (Config, error) {
@@ -47,6 +50,17 @@ func Load() (Config, error) {
 		listen = ":9090"
 	}
 
+	caCert := os.Getenv("RUSTFS_CA_CERT")
+
+	skipVerify := false
+	if v := os.Getenv("RUSTFS_TLS_SKIP_VERIFY"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid RUSTFS_TLS_SKIP_VERIFY %q: %w", v, err)
+		}
+		skipVerify = b
+	}
+
 	return Config{
 		Endpoint:       endpoint,
 		AccessKey:      ak,
@@ -54,5 +68,7 @@ func Load() (Config, error) {
 		Region:         region,
 		Listen:         listen,
 		ScrapeInterval: interval,
+		CACertPath:     caCert,
+		TLSSkipVerify:  skipVerify,
 	}, nil
 }

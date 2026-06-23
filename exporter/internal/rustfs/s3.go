@@ -13,21 +13,26 @@ import (
 )
 
 type S3Client struct {
-	Endpoint   string
-	Region     string
-	AccessKey  string
-	SecretKey  string
-	HTTP       *http.Client
+	Endpoint  string
+	Region    string
+	AccessKey string
+	SecretKey string
+	HTTP      *http.Client
 }
 
-func NewS3Client(ep, region, ak, sk string) *S3Client {
+// NewS3Client 构造一个 S3 客户端。tlsOpts 用于 HTTPS 证书校验配置。
+func NewS3Client(ep, region, ak, sk string, tlsOpts TLSOptions) (*S3Client, error) {
+	httpClient, err := BuildHTTPClient(tlsOpts, 10*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("s3 client: %w", err)
+	}
 	return &S3Client{
 		Endpoint:  strings.TrimRight(ep, "/"),
 		Region:    region,
 		AccessKey: ak,
 		SecretKey: sk,
-		HTTP:      &http.Client{Timeout: 10 * time.Second},
-	}
+		HTTP:      httpClient,
+	}, nil
 }
 
 type s3ListAllMyBucketsResult struct {
@@ -46,9 +51,10 @@ func (c *S3Client) ListBuckets(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	auth, date := sigv4.Sign("GET", req.URL.Host, "/", "", c.Region, "s3", nil, c.AccessKey, c.SecretKey)
+	auth, date, contentSHA := sigv4.Sign("GET", req.URL.Host, "/", "", c.Region, "s3", nil, c.AccessKey, c.SecretKey)
 	req.Header.Set("Authorization", auth)
 	req.Header.Set("X-Amz-Date", date)
+	req.Header.Set("X-Amz-Content-Sha256", contentSHA)
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

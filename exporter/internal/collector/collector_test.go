@@ -14,6 +14,19 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
+func newClients(t *testing.T, s3URL, adminURL string) (*rustfs.S3Client, *rustfs.AdminClient) {
+	t.Helper()
+	s3, err := rustfs.NewS3Client(s3URL, "us-east-1", "a", "b", rustfs.TLSOptions{})
+	if err != nil {
+		t.Fatalf("NewS3Client: %v", err)
+	}
+	adm, err := rustfs.NewAdminClient(adminURL, "us-east-1", "a", "b", rustfs.TLSOptions{})
+	if err != nil {
+		t.Fatalf("NewAdminClient: %v", err)
+	}
+	return s3, adm
+}
+
 func TestScrapeWorker_OneCycle(t *testing.T) {
 	var bucketCalls, replCalls, healthCalls atomic.Int32
 
@@ -42,9 +55,8 @@ func TestScrapeWorker_OneCycle(t *testing.T) {
 	c.Register(reg)
 	c.Up.Set(1)
 
-	w := NewScrapeWorker(rustfs.NewS3Client(s3.URL, "us-east-1", "a", "b"),
-		rustfs.NewAdminClient(admin.URL, "us-east-1", "a", "b"),
-		c, 10*time.Millisecond)
+	s3Client, adminClient := newClients(t, s3.URL, admin.URL)
+	w := NewScrapeWorker(s3Client, adminClient, c, 10*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -79,9 +91,8 @@ func TestScrapeWorker_SetsUpToZeroOnError(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	c.Register(reg)
 
-	w := NewScrapeWorker(rustfs.NewS3Client(s3.URL, "us-east-1", "a", "b"),
-		rustfs.NewAdminClient(admin.URL, "us-east-1", "a", "b"),
-		c, 10*time.Millisecond)
+	s3Client, adminClient := newClients(t, s3.URL, admin.URL)
+	w := NewScrapeWorker(s3Client, adminClient, c, 10*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

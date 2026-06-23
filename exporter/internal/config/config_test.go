@@ -12,6 +12,8 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("RUSTFS_REGION", "")
 	t.Setenv("RUSTFS_EXPORTER_LISTEN", "")
 	t.Setenv("RUSTFS_EXPORTER_SCRAPE_INTERVAL", "")
+	t.Setenv("RUSTFS_CA_CERT", "")
+	t.Setenv("RUSTFS_TLS_SKIP_VERIFY", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -28,6 +30,12 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.ScrapeInterval != 30*time.Second {
 		t.Errorf("ScrapeInterval default = %v, want %v", cfg.ScrapeInterval, 30*time.Second)
+	}
+	if cfg.CACertPath != "" {
+		t.Errorf("CACertPath default = %q, want empty", cfg.CACertPath)
+	}
+	if cfg.TLSSkipVerify {
+		t.Errorf("TLSSkipVerify default = true, want false")
 	}
 }
 
@@ -46,6 +54,8 @@ func TestLoad_Override(t *testing.T) {
 	t.Setenv("RUSTFS_REGION", "cn-north-1")
 	t.Setenv("RUSTFS_EXPORTER_LISTEN", ":9999")
 	t.Setenv("RUSTFS_EXPORTER_SCRAPE_INTERVAL", "10s")
+	t.Setenv("RUSTFS_CA_CERT", "")
+	t.Setenv("RUSTFS_TLS_SKIP_VERIFY", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -62,5 +72,37 @@ func TestLoad_Override(t *testing.T) {
 	}
 	if cfg.ScrapeInterval != 10*time.Second {
 		t.Errorf("ScrapeInterval = %v", cfg.ScrapeInterval)
+	}
+}
+
+func TestLoad_TLSSkipVerify(t *testing.T) {
+	t.Setenv("RUSTFS_ACCESS_KEY", "ak")
+	t.Setenv("RUSTFS_SECRET_KEY", "sk")
+	t.Setenv("RUSTFS_TLS_SKIP_VERIFY", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if !cfg.TLSSkipVerify {
+		t.Errorf("TLSSkipVerify=false, want true")
+	}
+}
+
+func TestLoad_CACertPath(t *testing.T) {
+	t.Setenv("RUSTFS_ACCESS_KEY", "ak")
+	t.Setenv("RUSTFS_SECRET_KEY", "sk")
+	t.Setenv("RUSTFS_CA_CERT", "/path/to/ca.pem")
+	t.Setenv("RUSTFS_TLS_SKIP_VERIFY", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if cfg.CACertPath != "/path/to/ca.pem" {
+		t.Errorf("CACertPath=%q, want /path/to/ca.pem", cfg.CACertPath)
+	}
+	if cfg.TLSSkipVerify {
+		t.Errorf("TLSSkipVerify=true, want false")
 	}
 }

@@ -11,9 +11,19 @@ import (
 	"time"
 )
 
-// Sign 实现 AWS SigV4 签名（Authorization 头 + X-Amz-Date）。
-// 限制：单区域、单服务、payload=UNSIGNED-PAYLOAD；适配 rustfs admin 与 S3 ListBuckets。
-func Sign(method, host, path, query, region, service string, body []byte, ak, sk string) (string, string) {
+// EmptyPayloadSHA256 is the hex-encoded SHA-256 of an empty byte slice.
+// AWS SigV4 requires x-amz-content-sha256 in canonical headers / SignedHeaders
+// even for GET requests with no body.
+const EmptyPayloadSHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+// Sign 实现 AWS SigV4 签名（Authorization 头 + X-Amz-Date + X-Amz-Content-Sha256）。
+// 限制：单区域、单服务；适配 rustfs admin 与 S3 ListBuckets。
+// 返回 (Authorization 头, X-Amz-Date, X-Amz-Content-Sha256)。
+//
+// 注意：rustfs (crates/signer/src/request_signature_v4.rs) 会从请求头中读取
+// x-amz-content-sha256 的值并直接用作 payload hash，所以签名时 payload hash 必须
+// 与请求头里的值一致。空 body 时使用 e3b0c44…（空字符串的 sha256 hex）。
+func Sign(method, host, path, query, region, service string, body []byte, ak, sk string) (string, string, string) {
 	now := time.Now().UTC()
 	amzDate := now.Format("20060102T150405Z")
 	dateStamp := now.Format("20060102")
@@ -21,14 +31,20 @@ func Sign(method, host, path, query, region, service string, body []byte, ak, sk
 	// 1. Canonical Request
 	var payloadHash string
 	if body == nil {
-		payloadHash = "UNSIGNED-PAYLOAD"
+		payloadHash = EmptyPayloadSHA256
 	} else {
 		h := sha256.Sum256(body)
 		payloadHash = hex.EncodeToString(h[:])
 	}
 
-	canonicalHeaders := "host:" + host + "\n"
-	signedHeaders := "host"
+	// x-amz-content-sha256 必须进入 canonical_headers 与 SignedHeaders
+	// (AWS SigV4 spec)。请求头值必须与此处一致。
+	contentSHA256 := payloadHash
+
+	canonicalHeaders := "host:" + host + "\n" +
+		"x-amz-content-sha256:" + contentSHA256 + "\n" +
+		"x-amz-date:" + amzDate + "\n"
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
 
 	canonicalURI := path
 	if canonicalURI == "" {
@@ -68,7 +84,7 @@ func Sign(method, host, path, query, region, service string, body []byte, ak, sk
 		"AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
 		ak, credentialScope, signedHeaders, signature,
 	)
-	return auth, amzDate
+	return auth, amzDate, contentSHA256
 }
 
 func hashSHA256Hex(b []byte) string {
