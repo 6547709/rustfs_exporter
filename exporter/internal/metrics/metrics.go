@@ -22,17 +22,22 @@ type Collector struct {
 func NewCollector() *Collector {
 	bucketLabel := []string{"bucket"}
 	return &Collector{
-		Up:     prometheus.NewGauge(prometheus.GaugeOpts{Name: "rustfs_up", Help: "1 if exporter last scrape succeeded."}),
-		Health: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_health_ready", Help: "1 if rustfs component is ready."}, []string{"component"}),
-		PendingBytes:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_pending_bytes",     Help: "Bytes pending replication."},         bucketLabel),
-		PendingCount:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_pending_count",     Help: "Objects pending replication."},       bucketLabel),
-		CompletedBytes:  prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_completed_bytes",   Help: "Bytes replicated in total."},         bucketLabel),
-		CompletedCount:  prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_completed_count",   Help: "Objects replicated in total."},       bucketLabel),
-		FailedCount:     prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_failed_count",      Help: "Failed objects in total."},  bucketLabel),
-		BandwidthNow:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_bandwidth_current_bytes", Help: "Current replication bandwidth."}, bucketLabel),
-		QueueCurrent:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_queue_current_bytes",     Help: "Current queue depth in bytes."},       bucketLabel),
-		QueueLastMinute: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_queue_last_minute_bytes", Help: "Bytes enqueued in last minute."},  bucketLabel),
-		QueueMax:        prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_queue_max_bytes",         Help: "Max queue depth since start."},         bucketLabel),
+		Up:     prometheus.NewGauge(prometheus.GaugeOpts{Name: "rustfs_up", Help: "1 if the exporter's last scrape of rustfs (S3 ListBuckets) succeeded, else 0."}),
+		Health: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_health_ready", Help: "1 if the rustfs component is ready (storage / iam / lock)."}, []string{"component"}),
+
+		// Replication metrics. All byte/count metrics are absolute current values
+		// (gauges) — Prometheus convention reserves `_total` for cumulative counters.
+		// "completed" = successfully replicated. Counters only go up; gauges track
+		// instantaneous state.
+		PendingBytes:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_pending_bytes",     Help: "Bytes still waiting to be replicated (current backlog size). Unit: bytes."},         bucketLabel),
+		PendingCount:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_pending_count",     Help: "Objects still waiting to be replicated (current backlog count). Unit: objects."},       bucketLabel),
+		CompletedBytes:  prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_completed_bytes",   Help: "Total bytes successfully replicated since rustfs started (cumulative counter). Use rate(...[5m]) to get throughput. Unit: bytes."}, bucketLabel),
+		CompletedCount:  prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_completed_count",   Help: "Total objects successfully replicated since rustfs started (cumulative counter). Unit: objects."}, bucketLabel),
+		FailedCount:     prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_failed_count",      Help: "Total objects that failed replication since rustfs started (cumulative counter). Use rate(...[5m]) for failure rate. Unit: objects."}, bucketLabel),
+		BandwidthNow:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_bandwidth_current_bytes", Help: "Instantaneous replication bandwidth reported by rustfs admin API (summed across all target ARNs). Unit: bytes/sec."}, bucketLabel),
+		QueueCurrent:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_queue_current_bytes",     Help: "Current queue depth in bytes (sampled now). Unit: bytes."},       bucketLabel),
+		QueueLastMinute: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_queue_last_minute_bytes", Help: "Average queue depth in bytes over the last minute. Unit: bytes."},  bucketLabel),
+		QueueMax:        prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rustfs_replication_queue_max_bytes",         Help: "Maximum queue depth in bytes observed since rustfs started. Unit: bytes."},         bucketLabel),
 	}
 }
 
