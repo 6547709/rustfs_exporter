@@ -1,5 +1,7 @@
 scrape_configs:
+  # exporter 走 host network（需要访问外部 rustfs）；VM 通过 host.docker.internal 找它。
+  # compose 在 vm 服务上加了 extra_hosts: host.docker.internal:host-gateway。
   - job_name: rustfs
     scrape_interval: 30s
     static_configs:
-      - targets: ['exporter:9090']
+      - targets: ['host.docker.internal:9090']

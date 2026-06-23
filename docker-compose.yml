@@ -1,32 +1,22 @@
-version: "3.8"
-
 services:
-  rustfs:
-    image: ${RUSTFS_IMAGE}
-    restart: unless-stopped
-    ports:
-      - "9000:9000"
-    environment:
-      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
-      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
-      RUSTFS_VOLUMES: /data
-    volumes:
-      - ./data:/data
-
   exporter:
     image: local-mirror/rustfs-exporter:latest
     restart: unless-stopped
-    ports:
-      - "9090:9090"
+    network_mode: host
     environment:
-      RUSTFS_ENDPOINT: http://rustfs:9000
-      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
-      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
-      RUSTFS_REGION: us-east-1
+      # 必填：被监控 rustfs 的 S3 API endpoint（不是 admin endpoint，二者同地址同端口）
+      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:?set RUSTFS_ENDPOINT in .env}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?set in .env}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?set in .env}
+      RUSTFS_REGION: ${RUSTFS_REGION:-us-east-1}
       RUSTFS_EXPORTER_LISTEN: ":9090"
-      RUSTFS_EXPORTER_SCRAPE_INTERVAL: 30s
-    depends_on:
-      - rustfs
+      RUSTFS_EXPORTER_SCRAPE_INTERVAL: ${RUSTFS_EXPORTER_SCRAPE_INTERVAL:-30s}
+      # TLS 配置（生产环境强烈建议使用 CA_CERT 而非 SKIP_VERIFY）
+      RUSTFS_TLS_SKIP_VERIFY: ${RUSTFS_TLS_SKIP_VERIFY:-false}
+      RUSTFS_CA_CERT: ${RUSTFS_CA_CERT:-/etc/rustfs/ca.pem}
+    volumes:
+      # 把宿主机的 CA 证书挂进容器；如不需要 TLS 可指向任意已存在文件
+      - ${RUSTFS_CA_CERT_HOST_PATH:-/etc/ssl/certs/ca-certificates.crt}:/etc/rustfs/ca.pem:ro
 
   vm:
     image: victoriametrics/victoria-metrics:v1.146.0
@@ -36,16 +26,17 @@ services:
       - "-retentionPeriod=30d"
       - "-promscrape.config=/etc/vm/scrape.yml"
       - "-memory.allowedPercent=40"
+      - "-httpListenAddr=:8429"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./conf/vm-scrape.yml:/etc/vm/scrape.yml:ro
       - vm-data:/storage
     ports:
       - "8429:8429"
-    depends_on:
-      - exporter
 
   grafana:
-    image: grafana/grafana:10.4.0
+    image: grafana/grafana:13.0.2
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASS:-admin}
