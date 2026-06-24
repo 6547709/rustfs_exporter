@@ -554,10 +554,10 @@
         "w": 12,
         "h": 8
       },
-      "description": "Instantaneous rate of completed_bytes (PromQL irate over 2m window). rustfs admin API current_bandwidth is unreliable (~100x lower than actual).",
+      "description": "Instantaneous rate of completed_bytes (PromQL irate over 5m window). rustfs admin API current_bandwidth is completely unreliable (off by 100-200x in both directions).",
       "targets": [
         {
-          "expr": "irate(rustfs_replication_completed_bytes[2m])",
+          "expr": "irate(rustfs_replication_completed_bytes[5m])",
           "refId": "A"
         }
       ],
@@ -585,6 +585,57 @@
       }
     },
     {
+      "type": "stat",
+      "title": "Peak Throughput (last 1h)",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "max_over_time(irate(rustfs_replication_completed_bytes[5m])[1h:1m])",
+          "legendFormat": "peak"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": 0,
+                "result": {
+                  "text": "0"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "description": "Maximum irate() over the last 1 hour (1m step). Use this to see peak throughput, not the irate[5m] which only shows recent activity."
+    },
+    {
       "type": "timeseries",
       "title": "Replicated Total (cumulative)",
       "gridPos": {
@@ -610,45 +661,6 @@
             "gradientMode": "opacity"
           },
           "decimals": 0
-        }
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Reported Bandwidth (UNRELIABLE)",
-      "gridPos": {
-        "x": 12,
-        "y": 25,
-        "w": 12,
-        "h": 8
-      },
-      "description": "\u26a0\ufe0f rustfs admin API current_bandwidth_bytes_per_sec underreports by ~100x. Use Replication Throughput instead.",
-      "targets": [
-        {
-          "expr": "rustfs_replication_bandwidth_current_bytes{bucket=~\"$bucket\"}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "KBs",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10
-          },
-          "decimals": 1,
-          "mappings": [
-            {
-              "type": "special",
-              "options": {
-                "match": 0,
-                "result": {
-                  "text": "0"
-                }
-              }
-            }
-          ]
         }
       }
     },
