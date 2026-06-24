@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rustfs-monitoring
+
+resources:
+  - namespace.yaml
+  - grafana-deployment.yaml
+  - grafana-service.yaml
+  - grafana-route.yaml
+  - config-datasource.yaml
+  - config-dashboards-cfg.yaml
+  - dashboards-rustfs.yaml
+  - config-alerts.yaml
+
+# Secrets — must be edited before `oc apply`.
+# Generate Grafana admin password:
+#   openssl rand -base64 24 | tr -d '\n=' | head -c 32
+secretGenerator:
+  - name: grafana-admin
+    literals:
+      - password=REPLACE_WITH_RANDOM_STRING
+generatorOptions:
+  disableNameSuffixHash: true
+
+# Patch the datasource ConfigMap with the remote VM URL.
+# Required before `oc apply`. Example:
+#   kustomize edit set datasources[0].url=http://vm-host.example.com:8429
+# Or use a transformer like:
+#   vars:
+#   - name: VM_REMOTE_URL
+#     objref: { kind: ConfigMap, name: grafana-datasources, apiVersion: v1 }
+#     fieldref: { fieldpath: '$.data["datasources.yaml"]' }   # not a real ref, illustrative
+
+# commonLabels are attached to every resource so they show up in `oc get all`
+commonLabels:
+  app.kubernetes.io/part-of: rustfs-monitoring

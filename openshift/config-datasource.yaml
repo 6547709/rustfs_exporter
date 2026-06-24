@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: rustfs-monitoring
+data:
+  # VM_REMOTE_URL placeholder — substitute via kustomize or sed before `oc apply`
+  # Example: http://vm-host.example.com:8429
+  # If VM is behind a private CA, mount the bundle to /etc/ssl/certs and set tlsCACert.
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: VictoriaMetrics
+        uid: PBFA97CFB590B2093
+        type: prometheus
+        access: proxy
+        url: ${VM_REMOTE_URL}
+        isDefault: true
+        editable: false
+        jsonData:
+          httpMethod: POST
+          timeInterval: 30s

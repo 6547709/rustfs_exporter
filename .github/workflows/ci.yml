@@ -1,0 +1,204 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write   # needed for ghcr.io push
+
+env:
+  IMAGE_NAME: rustfs-exporter
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Test + lint
+  # -------------------------------------------------------------------------
+  test:
+    name: test (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: go mod download
+        working-directory: exporter
+        run: go mod download
+
+      - name: go vet
+        working-directory: exporter
+        run: go vet ./...
+
+      - name: go test
+        working-directory: exporter
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: go build
+        working-directory: exporter
+        run: go build ./...
+
+      - name: upload coverage
+        if: matrix.go-version == '1.22' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: exporter/coverage.out
+
+  # -------------------------------------------------------------------------
+  # Build static binaries for direct host installation (systemd path)
+  # -------------------------------------------------------------------------
+  binary:
+    name: binary (${{ matrix.os }}/${{ matrix.arch }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            goarch: amd64
+          - os: linux
+            arch: arm64
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: build static binary
+        working-directory: exporter
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p ../dist
+          go build -trimpath -ldflags="-s -w" -o ../dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }} ./cmd/exporter
+          sha256sum ../dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }} > ../dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }}.sha256
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }}
+            dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }}.sha256
+          retention-days: 30
+
+  # -------------------------------------------------------------------------
+  # Build + push multi-arch Docker image to GitHub Container Registry
+  # -------------------------------------------------------------------------
+  image:
+    name: docker image (push on tag)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: derive image refs
+        id: refs
+        run: |
+          # main branch: :<sha>, latest on main pushes
+          # tags vX.Y.Z: :X.Y.Z, :X.Y, :latest
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            # strip leading 'v'
+            VER="${TAG#v}"
+            TAGS="${VER},${VER%.*},latest"
+          else
+            SHA="${GITHUB_SHA::7}"
+            TAGS="${SHA}"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: login to ghcr.io
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: build (no push on PR)
+        uses: docker/build-push-action@v6
+        with:
+          context: exporter
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.refs.outputs.tags != '' && format('ghcr.io/6547709/{0}:{1}', env.IMAGE_NAME, steps.refs.outputs.tags) || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+  # -------------------------------------------------------------------------
+  # Lint compose + dashboards (best-effort, fast)
+  # -------------------------------------------------------------------------
+  lint-config:
+    name: lint configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: compose config
+        working-directory: deploy/monitoring
+        run: |
+          # generate minimal .env so compose can interpolate
+          cat > .env <<EOF
+          RUSTFS_ENDPOINT=http://placeholder:9000
+          RUSTFS_ACCESS_KEY=x
+          RUSTFS_SECRET_KEY=x
+          EOF
+          docker run --rm -v "$PWD:/work" -w /work docker/compose-bin:latest \
+            sh -c "docker compose config -q && echo compose-ok"
+
+      - name: validate dashboard JSON
+        working-directory: deploy/monitoring
+        run: |
+          for f in dashboards/*.json; do
+            python3 -c "import json,sys; json.load(open('$f'))" || exit 1
+          done
+          echo "dashboards-ok"
+
+      - name: validate OpenShift YAML
+        working-directory: deploy/monitoring
+        run: |
+          python3 -c "
+          import yaml, glob, sys
+          errs = 0
+          for f in sorted(glob.glob('openshift/*.yaml')):
+              docs = list(yaml.safe_load_all(open(f)))
+              docs = [d for d in docs if d]
+              if not docs:
+                  print(f'  EMPTY {f}'); errs += 1
+              else:
+                  for d in docs:
+                      k = d.get('kind','?'); n = d.get('metadata',{}).get('name','?')
+                      print(f'  OK {f}  {k}/{n}')
+          sys.exit(errs)
+          "

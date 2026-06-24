@@ -1,0 +1,167 @@
+{
+  "title": "RustFS",
+  "uid": "rustfs-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "bucket",
+        "type": "query",
+        "datasource": "VictoriaMetrics",
+        "query": "label_values(rustfs_replication_pending_bytes, bucket)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row", "title": "Health", "gridPos": {"x":0,"y":0,"w":24,"h":1},
+      "collapsed": false, "id": 100
+    },
+    {
+      "type": "stat", "title": "Storage", "gridPos": {"x":0,"y":1,"w":6,"h":4},
+      "targets": [{"expr": "rustfs_health_ready{component=\"storage\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value","options": {"0":{"text":"NOT READY","color":"red"},"1":{"text":"READY","color":"green"}}}]}}
+    },
+    {
+      "type": "stat", "title": "IAM", "gridPos": {"x":6,"y":1,"w":6,"h":4},
+      "targets": [{"expr": "rustfs_health_ready{component=\"iam\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value","options": {"0":{"text":"NOT READY","color":"red"},"1":{"text":"READY","color":"green"}}}]}}
+    },
+    {
+      "type": "stat", "title": "Lock", "gridPos": {"x":12,"y":1,"w":6,"h":4},
+      "targets": [{"expr": "rustfs_health_ready{component=\"lock\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value","options": {"0":{"text":"NOT READY","color":"red"},"1":{"text":"READY","color":"green"}}}]}}
+    },
+    {
+      "type": "stat", "title": "Exporter", "gridPos": {"x":18,"y":1,"w":6,"h":4},
+      "targets": [{"expr": "rustfs_up", "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value","options": {"0":{"text":"DOWN","color":"red"},"1":{"text":"UP","color":"green"}}}]}}
+    },
+    {
+      "type": "row", "title": "Per-Bucket Replication (current snapshot)", "gridPos": {"x":0,"y":5,"w":24,"h":1},
+      "collapsed": false, "id": 101
+    },
+    {
+      "type": "table", "title": "Per-Bucket Replication", "gridPos": {"x":0,"y":6,"w":24,"h":10},
+      "targets": [
+        {"expr": "rustfs_replication_pending_bytes",           "refId": "A", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_pending_count",           "refId": "B", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_completed_bytes",         "refId": "C", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_completed_count",         "refId": "D", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_failed_count",            "refId": "E", "format": "table", "instant": true, "hide": true},
+        {"expr": "rustfs_replication_bandwidth_current_bytes", "refId": "F", "format": "table", "instant": true, "hide": true}
+      ],
+      "transformations": [{"id": "merge"}],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"align": "auto", "cellOptions": {"type": "auto", "wrapText": false}}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Value (pending_bytes)"},
+           "properties": [{"id": "unit", "value": "bytes"},
+                          {"id": "displayName", "value": "Pending Size"},
+                          {"id": "custom.cellOptions", "value": {"type": "color-background", "wrapText": false}}]},
+          {"matcher": {"id": "byName", "options": "Value (pending_count)"},
+           "properties": [{"id": "unit", "value": "short"},
+                          {"id": "displayName", "value": "Pending Objects"}]},
+          {"matcher": {"id": "byName", "options": "Value (completed_bytes)"},
+           "properties": [{"id": "unit", "value": "bytes"},
+                          {"id": "displayName", "value": "Replicated Total"},
+                          {"id": "custom.cellOptions", "value": {"type": "color-background", "wrapText": false}}]},
+          {"matcher": {"id": "byName", "options": "Value (completed_count)"},
+           "properties": [{"id": "unit", "value": "short"},
+                          {"id": "displayName", "value": "Replicated Objects"}]},
+          {"matcher": {"id": "byName", "options": "Value (failed_count)"},
+           "properties": [{"id": "unit", "value": "short"},
+                          {"id": "displayName", "value": "Failed Objects"},
+                          {"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "gradient", "valueDisplayMode": "color"}}]},
+          {"matcher": {"id": "byName", "options": "Value (bandwidth_current_bytes)"},
+           "properties": [{"id": "unit", "value": "Bps"},
+                          {"id": "displayName", "value": "Current Bandwidth"}]}
+        ]
+      },
+      "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true}
+    },
+    {
+      "type": "row", "title": "Replication Trend", "gridPos": {"x":0,"y":16,"w":24,"h":1},
+      "collapsed": false, "id": 102
+    },
+    {
+      "type": "timeseries", "title": "Pending Backlog", "gridPos": {"x":0,"y":17,"w":12,"h":8},
+      "targets": [{"expr": "rustfs_replication_pending_bytes{bucket=~\"$bucket\"}", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+          "color": {"mode": "palette-classic"}
+        }
+      }
+    },
+    {
+      "type": "timeseries", "title": "Replication Throughput", "gridPos": {"x":12,"y":17,"w":12,"h":8},
+      "description": "Average bytes replicated per second over the last 5 minutes (PromQL rate() over cumulative counter).",
+      "targets": [{"expr": "rate(rustfs_replication_completed_bytes[5m])", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
+        }
+      }
+    },
+    {
+      "type": "timeseries", "title": "Replicated Total (cumulative)", "gridPos": {"x":0,"y":25,"w":12,"h":8},
+      "description": "Cumulative bytes successfully replicated since rustfs started. Counter, only goes up.",
+      "targets": [{"expr": "rustfs_replication_completed_bytes{bucket=~\"$bucket\"}", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "gradientMode": "opacity"}
+        }
+      }
+    },
+    {
+      "type": "timeseries", "title": "Current Bandwidth (from admin API)", "gridPos": {"x":12,"y":25,"w":12,"h":8},
+      "description": "Instantaneous replication bandwidth reported by rustfs admin (per-ARN aggregated).",
+      "targets": [{"expr": "rustfs_replication_bandwidth_current_bytes{bucket=~\"$bucket\"}", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
+        }
+      }
+    },
+    {
+      "type": "timeseries", "title": "Failure Rate", "gridPos": {"x":0,"y":33,"w":12,"h":8},
+      "description": "Average failed objects per second over the last 5 minutes.",
+      "targets": [{"expr": "rate(rustfs_replication_failed_count[5m])", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+          "color": {"mode": "fixed", "fixedColor": "red"}
+        }
+      }
+    },
+    {
+      "type": "timeseries", "title": "Queue Depth", "gridPos": {"x":12,"y":33,"w":12,"h":8},
+      "description": "Bytes waiting in the replication queue. Current / Last minute average / Max since start.",
+      "targets": [
+        {"expr": "rustfs_replication_queue_current_bytes{bucket=~\"$bucket\"}",     "refId": "A", "legendFormat": "current"},
+        {"expr": "rustfs_replication_queue_last_minute_bytes{bucket=~\"$bucket\"}", "refId": "B", "legendFormat": "avg last minute"},
+        {"expr": "rustfs_replication_queue_max_bytes{bucket=~\"$bucket\"}",         "refId": "C", "legendFormat": "max since start"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}
+        }
+      }
+    }
+  ]
+}

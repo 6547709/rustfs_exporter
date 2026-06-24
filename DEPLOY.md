@@ -1,192 +1,281 @@
-# RustFS Monitoring Stack — 部署文档
+# Deployment Guide
 
-> 一台监控机 + 外部 rustfs 集群（生产推荐）。
-> 单机自包含模式（监控机和 rustfs 同一台机器）也支持，只需把 `RUSTFS_ENDPOINT` 指 `http://localhost:9000`。
+Three deployment modes are supported. Pick the one that matches your topology:
 
-## 1. 架构
+- **[§1 Docker Compose](#1-docker-compose)** — single host, dev/test
+- **[§2 systemd](#2-systemd-rhel-9--rocky-9)** — production host, hardened, SELinux-friendly
+- **[§3 OpenShift Grafana](#3-openshift-grafana-remote)** — Grafana on remote OpenShift cluster, scraping VM via network
 
-```
-   rustfs 集群（外部）
-       │  S3 + admin API（端口 9000）
-       ▼
-┌─────────────────┐    /metrics     ┌──────────────┐     PromQL      ┌─────────┐
-│ rustfs-exporter │ ───────────────▶│ VictoriaMtrcs│ ───────────────▶│ Grafana │
-│  (distroless)   │    :9090       │  v1.146.0    │     :8429       │ 13.0.2  │
-└─────────────────┘                └──────────────┘                 └─────────┘
-                                                                            :3000
-```
+---
 
-**3 个容器**：exporter / vm / grafana。RustFS 不在栈内，由 `RUSTFS_ENDPOINT` 指向。
+## 1. Docker Compose
 
-**镜像**：
-| 容器 | 镜像 | 大小（参考） |
-|---|---|---|
-| rustfs-exporter | local-mirror/rustfs-exporter:latest | ~10 MB（distroless） |
-| victoria-metrics | victoriametrics/victoria-metrics:v1.146.0 | ~30 MB |
-| grafana | grafana/grafana:13.0.2 | ~300 MB |
+Single host with all three services. Quick start, good for dev/test.
 
-## 2. 快速开始（在线 / 有网）
+### 1.1 Quick start
 
 ```bash
 cd deploy/monitoring
-
-# 1) 配 .env
 cp .env.example .env
-$EDITOR .env           # 至少改 RUSTFS_ENDPOINT / RUSTFS_ACCESS_KEY / RUSTFS_SECRET_KEY
+$EDITOR .env   # set RUSTFS_ENDPOINT / RUSTFS_ACCESS_KEY / RUSTFS_SECRET_KEY
 
-# 2) 构建 exporter 镜像（仅首次）
 docker build -t local-mirror/rustfs-exporter:latest exporter
-
-# 3) 启动
 docker compose up -d
-
-# 4) 验证
-curl -s localhost:9090/metrics | grep ^rustfs_ | head -20
-curl -s 'localhost:8429/api/v1/query?query=rustfs_up' | head -c 200
 ```
 
-Grafana 访问 `http://<host>:3000`，默认账号 `admin / admin`（改 `GF_ADMIN_PASS`）。
+### 1.2 Architecture
 
-## 3. 离线部署（无网环境）
+```
+rustfs cluster (external)
+    │
+    └─→ exporter (host network) :9090  ──→ VictoriaMetrics :8429  ──→ Grafana :3000
+```
 
-### 3.1 在有网的机器上准备 tar
+The exporter uses `network_mode: host` so it can reach external rustfs IPs.
+VictoriaMetrics uses `extra_hosts: host.docker.internal:host-gateway` to
+scrape the host-network exporter.
+
+### 1.3 Configuration
+
+See [`.env.example`](./.env.example) for all 9 environment variables.
+
+TLS options:
+- **Production**: set `RUSTFS_CA_CERT_HOST_PATH` to a real CA bundle file
+- **Dev only**: set `RUSTFS_TLS_SKIP_VERIFY=true`
+
+### 1.4 Ports
+
+| Port | Service | Exposed |
+|---|---|---|
+| 9000 | rustfs (external) | — |
+| 9090 | rustfs-exporter | yes (host) |
+| 8429 | VictoriaMetrics | yes (host) |
+| 3000 | Grafana | yes (host) |
+
+### 1.5 Verification
 
 ```bash
+curl -s localhost:9090/metrics | grep ^rustfs_up
+curl -s 'localhost:8429/api/v1/query?query=rustfs_up'
+curl -s -u admin:admin localhost:3000/api/health   # → Grafana version
+curl -s -u admin:admin localhost:3000/api/search?type=dash-db   # → ["RustFS"]
+```
+
+### 1.6 Offline deployment
+
+```bash
+# On an internet-connected host:
 cd deploy/monitoring
 docker build -t local-mirror/rustfs-exporter:latest exporter
-./scripts/prep-offline.sh
-# 输出 images/{exporter,vm,grafana}.tar
-```
+./scripts/prep-offline.sh       # exports images/{exporter,vm,grafana}.tar
 
-若**自包含 rustfs**（监控机和 rustfs 同一台且需要 docker load rustfs 镜像），加 `PREP_RUSTFS=1`：
-
-```bash
-PREP_RUSTFS=1 ./scripts/prep-offline.sh
-```
-
-### 3.2 在目标机器上加载
-
-```bash
+# On the target host (air-gapped):
 cd deploy/monitoring
 cp .env.example .env && $EDITOR .env
-
-./scripts/load-offline.sh          # docker load -i images/*.tar
-
+./scripts/load-offline.sh       # docker load -i images/*.tar
 docker compose up -d
 ```
 
-### 3.3 私有 CA 证书挂载（生产 HTTPS 必需）
+### 1.7 Behavior notes
 
-distroless 镜像无系统 CA bundle，**生产环境必须**挂载私有 CA：
+**404 from admin endpoint is normal.** For buckets without replication
+configured (target rustfs, or source without rules), admin returns 404 and
+the exporter silently skips the bucket (no log, no metric for that bucket).
+If you see `replication <bucket>: status 5xx` in stderr, that is a real error.
 
-```bash
-# 假设 CA 证书已保存到 /etc/ssl/certs/rustfs-ca.pem
-echo 'RUSTFS_TLS_SKIP_VERIFY=' >> .env
-echo 'RUSTFS_CA_CERT_HOST_PATH=/etc/ssl/certs/rustfs-ca.pem' >> .env
-docker compose restart exporter
-```
+**`rustfs_up = 0`** means the exporter cannot reach rustfs (network or auth).
 
-**临时调试**（不推荐生产用，MITM 风险）：
+---
 
-```bash
-echo 'RUSTFS_TLS_SKIP_VERIFY=true' >> .env
-echo 'RUSTFS_CA_CERT_HOST_PATH=/etc/hostname' >> .env
-docker compose restart exporter
-```
+## 2. systemd (RHEL 9 / Rocky 9)
 
-## 4. 配置项参考
+Production host with native Linux services. Hardened sandbox, SELinux-friendly.
 
-### 4.1 exporter env vars
+### 2.1 What gets installed
 
-| 变量 | 必填 | 默认 | 说明 |
-|---|---|---|---|
-| `RUSTFS_ENDPOINT` | ✅ | — | 含协议头；admin 与 S3 同址同端口 |
-| `RUSTFS_ACCESS_KEY` | ✅ | — | admin API 复用 |
-| `RUSTFS_SECRET_KEY` | ✅ | — | admin API 复用 |
-| `RUSTFS_REGION` | | `us-east-1` | SigV4 必需，rustfs 不校验值 |
-| `RUSTFS_EXPORTER_LISTEN` | | `:9090` | exporter HTTP 端口 |
-| `RUSTFS_EXPORTER_SCRAPE_INTERVAL` | | `30s` | exporter → rustfs 的抓取周期 |
-| `RUSTFS_TLS_SKIP_VERIFY` | | `false` | 跳过证书验证（仅调试） |
-| `RUSTFS_CA_CERT` | | `/etc/rustfs/ca.pem` | 容器内 CA 证书路径 |
-| `RUSTFS_CA_CERT_HOST_PATH` | | `/etc/ssl/certs/ca-certificates.crt` | 宿主机 CA 证书路径（compose 挂载源） |
-
-### 4.2 端口
-
-| 端口 | 服务 | 暴露 |
-|---|---|---|
-| 9000 | rustfs | **不暴露**（在 rustfs 主机上） |
-| 9090 | rustfs-exporter | 是（供 VM / 外部 scrape） |
-| 8429 | VictoriaMetrics | 是（PromQL + UI） |
-| 3000 | Grafana | 是（Web UI） |
-
-## 5. 验证 e2e
-
-```bash
-# 1. exporter 在线
-curl -s localhost:9090/healthz   # → ok
-curl -s localhost:9090/metrics | grep -c '^rustfs_'   # → 至少 11 个
-
-# 2. VM 抓到 exporter
-curl -s 'localhost:8429/api/v1/query?query=rustfs_up' | jq '.data.result | length'
-# → 应 ≥ 1（第一次 scrape 还没数据，最多等 30s）
-
-# 3. Grafana 面板可见
-curl -s -u admin:admin localhost:3000/api/search?type=dash-db | jq '.[].title'
-# → 应包含 "RustFS / Health"、"RustFS / Replication Overview"、"RustFS / Replication Trend"
-
-# 4. 报警规则加载
-curl -s localhost:8429/api/v1/rules | jq '.data.groups[].name'
-# → 应包含 "rustfs"
-
-# 5. 复制桶的真实指标
-curl -s localhost:9090/metrics | grep rustfs_replication_completed_bytes
-# → rustfs_replication_completed_bytes{bucket="<your-bucket>"} <bytes>
-```
-
-## 6. 行为说明
-
-### 6.1 404 是正常状态
-
-exporter 对**每个桶**调用 `GET /rustfs/admin/v3/replicationmetrics?bucket=<name>`。
-如果桶没有配置跨区域复制（即它是目标端，或源端未配复制），admin 返回 404。
-**这种情况下 exporter 不输出 replication 指标**，stderr 也不会有错误日志（自 v1 起 404 静默跳过）。
-
-如果看到 stderr 出现 `replication <bucket>: status 5xx`，那才是真错误——查 admin 服务状态。
-
-### 6.2 `rustfs_up` 含义
-
-| 值 | 含义 |
+| Path | Purpose |
 |---|---|
-| `1` | S3 `ListBuckets` 调用成功，exporter 与 rustfs 通信正常 |
-| `0` | S3 调用失败（网络、认证、rustfs 不可达），所有指标无意义 |
+| `/usr/local/bin/rustfs-exporter` | exporter binary |
+| `/usr/local/bin/victoria-metrics` | VM binary |
+| `/etc/systemd/system/rustfs-exporter.service` | unit |
+| `/etc/systemd/system/victoria-metrics.service` | unit |
+| `/etc/rustfs-mon/exporter.env` | exporter config (sensitive) |
+| `/etc/rustfs-mon/victoria-metrics.env` | VM config (sensitive) |
+| `/etc/rustfs-mon/victoria-metrics/scrape.yml` | VM scrape config |
+| `/var/lib/rustfs-mon` | working directory |
+| `/var/lib/victoria-metrics` | VM data dir |
+| User `rustfs-mon` | system user |
 
-### 6.3 抓取频率
+### 2.2 Install
 
+See [`systemd/README.md`](./systemd/README.md) for the full guide. Quick version:
+
+```bash
+cd deploy/monitoring
+
+# Build static exporter binary
+cd exporter
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../systemd/rustfs-exporter ./cmd/exporter
+cd ..
+
+# Download VM tarball
+curl -fsSL -o systemd/vm.tgz \
+  https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.146.0/victoria-metrics-linux-amd64-v1.146.0.tar.gz
+
+# Fill in config
+cp systemd/env/rustfs-exporter.env.example /tmp/exporter.env
+$EDITOR /tmp/exporter.env
+
+sudo EXPORTER_BIN=exporter/rustfs-exporter \
+     VM_TARBALL=systemd/vm.tgz \
+     EXPORTER_ENV=/tmp/exporter.env \
+     systemd/install.sh
 ```
-exporter → rustfs   : RUSTFS_EXPORTER_SCRAPE_INTERVAL (默认 30s)
-vm → exporter       : conf/vm-scrape.yml scrape_interval (默认 30s)
+
+### 2.3 SELinux
+
+Tested for enforcing / permissive / disabled on Rocky 9. The installer places
+binaries under `/usr/local/bin` (default `bin_t`, runs in `unconfined_t`) and
+state under `/var/lib` + `/etc` (default labels). Standard RHEL targeted
+policy allows all of this; the installer also runs `restorecon` as a safety net.
+
+Verify:
+
+```bash
+sudo systemd/tests/selinux.sh enforcing
+sudo systemd/tests/selinux.sh permissive
+# 'disabled' requires editing /etc/selinux/config + reboot
 ```
 
-两者都改 30s 是合适的：复制延迟通常以分钟计，10s 太密也看不出趋势。
+### 2.4 Operations
 
-## 7. 故障排查
+```bash
+sudo systemctl status rustfs-exporter victoria-metrics
+sudo journalctl -u rustfs-exporter -f
+sudo journalctl -u victoria-metrics -f
+curl -s localhost:9090/metrics | grep ^rustfs_
+curl -s 'localhost:8429/api/v1/query?query=rustfs_up'
+```
 
-| 现象 | 原因 | 修复 |
-|---|---|---|
-| `rustfs_up 0` | 凭证错 / 网络不通 / rustfs 9000 端口未暴露 | `curl -k -u ak:sk https://host:9000/` |
-| `curl: (60) SSL certificate problem` | distroless 无系统 CA | 配 `RUSTFS_CA_CERT_HOST_PATH` 或 `RUSTFS_TLS_SKIP_VERIFY=true` |
-| `missing header: x-amz-content-sha256` | 极少见，exporter 旧版本 | 升级镜像（v1 起已修） |
-| VM 一直无数据 | exporter 没起来 / scrape 路径错 | `curl localhost:9090/metrics` 先确认 |
-| Grafana 面板空 | 数据源没配好 | Administration → Data sources → VictoriaMetrics → Save & test |
-| 容器起不来：`bind: path does not exist` | `RUSTFS_CA_CERT_HOST_PATH` 指向不存在的文件 | 改成主机上确实存在的路径（即便不读） |
+For Grafana, run it on this host (Docker Compose, or a separate Grafana install)
+or deploy it to OpenShift per §3.
 
-## 8. 生产 checklist
+### 2.5 Uninstall
 
-- [ ] `RUSTFS_TLS_SKIP_VERIFY=false`（必须）
-- [ ] `RUSTFS_CA_CERT_HOST_PATH` 指向私有 CA（不要 skip-verify）
-- [ ] `GF_ADMIN_PASS` 改了默认 `admin`
-- [ ] 防火墙：仅暴露 9090/8429/3000 给内网
-- [ ] VM 存储：`vm-data` volume 用单独磁盘，防 OOM 拖垮业务
-- [ ] Grafana 持久化：`grafana-data` volume 单独磁盘
-- [ ] 报警接收人：改 `conf/grafana-alerts.yaml` 的 `notification_channel`
-- [ ] rustfs 凭证：用**只读**运维账号而非 root 账号
+```bash
+sudo systemd/uninstall.sh            # keep config + data
+sudo systemd/uninstall.sh --purge-data  # also delete state + user
+```
+
+---
+
+## 3. OpenShift Grafana (remote)
+
+Deploy Grafana on a remote OpenShift 4.x cluster. The cluster's egress must
+be able to reach a VictoriaMetrics instance (running either via Docker
+Compose or systemd on a different host).
+
+### 3.1 Network prerequisites
+
+The OpenShift cluster's egress CIDR must be allowed to reach the VM host on
+port 8429. Get the cluster's egress range and add a firewall rule on the VM host:
+
+```bash
+# On the OpenShift cluster:
+oc get clusteroperator network -o jsonpath='{.status.conditions[?(@.type=="PodNetwork01")].message}'
+# typically something like 10.128.0.0/14 — adjust as needed
+
+# On the VM host:
+firewall-cmd --zone=public --add-rich-rule='
+  rule family=ipv4 source address=<OPENSHIFT_EGRESS_CIDR> \
+  port port=8429 protocol=tcp accept'
+```
+
+### 3.2 Deploy
+
+See [`openshift/README.md`](./openshift/README.md) for the full guide. Quick version:
+
+```bash
+cd deploy/monitoring/openshift
+
+# 1. Generate Grafana admin password
+GRAFANA_PASS=$(openssl rand -base64 24 | tr -d '\n=' | head -c 32)
+
+# 2. Replace placeholder in kustomization.yaml
+sed -i "s/REPLACE_WITH_RANDOM_STRING/$GRAFANA_PASS/" kustomization.yaml
+
+# 3. Set the remote VM URL
+sed -i "s|\${VM_REMOTE_URL}|http://vm-host.example.com:8429|" config-datasource.yaml
+
+# 4. Apply
+oc new-project rustfs-monitoring
+oc apply -k .
+
+# 5. Wait + verify
+oc rollout status deploy/grafana -n rustfs-monitoring
+ROUTE=$(oc get route grafana -n rustfs-monitoring -o jsonpath='{.spec.host}')
+echo "https://$ROUTE"
+```
+
+### 3.3 What gets deployed
+
+| Resource | Purpose |
+|---|---|
+| `Namespace/rustfs-monitoring` | dedicated namespace |
+| `ServiceAccount/grafana` | pod identity |
+| `Deployment/grafana` | Grafana 13.0.2, rootless, hardened |
+| `Service/grafana` | ClusterIP :3000 |
+| `Route/grafana` | edge TLS |
+| `ConfigMap/grafana-datasources` | VictoriaMetrics datasource |
+| `ConfigMap/grafana-dashboard-rustfs` | the single `RustFS` dashboard JSON |
+| `ConfigMap/grafana-alerts` | 3 alert rules |
+| `Secret/grafana-admin` | admin password |
+
+### 3.4 Verification
+
+```bash
+oc rsh -n rustfs-monitoring deploy/grafana \
+  curl -s http://localhost:3000/api/health
+# → {"version":"13.0.2","database":"ok"}
+
+oc rsh -n rustfs-monitoring deploy/grafana \
+  curl -s -u admin:$GRAFANA_PASS \
+    http://localhost:3000/api/datasources/uid/PBFA97CFB590B2093/health
+# → "Successfully queried the Prometheus API"
+```
+
+### 3.5 Uninstall
+
+```bash
+oc delete -k openshift/
+oc delete namespace rustfs-monitoring
+```
+
+---
+
+## Common tasks
+
+### Update Grafana admin password
+
+| Mode | How |
+|---|---|
+| Compose | edit `GF_ADMIN_PASS` in `.env`, `docker compose up -d grafana` |
+| systemd | n/a (Grafana not deployed here) |
+| OpenShift | `oc patch secret grafana-admin -p '{"data":{"password":"'$(echo -n newpass \| base64)'"}}'` |
+
+### Rotate rustfs credentials
+
+| Mode | How |
+|---|---|
+| Compose | edit `.env`, `docker compose restart exporter` |
+| systemd | edit `/etc/rustfs-mon/exporter.env`, `sudo systemctl restart rustfs-exporter` |
+
+### View metrics from any host
+
+```bash
+# Exporter
+curl http://<host>:9090/metrics | grep ^rustfs_
+
+# VictoriaMetrics (PromQL)
+curl 'http://<host>:8429/api/v1/query?query=rustfs_replication_completed_bytes'
+```

@@ -1,0 +1,4 @@
+.env
+images/*.tar
+systemd/rustfs-exporter
+systemd/vm.tgz

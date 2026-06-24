@@ -1,0 +1,49 @@
+[Unit]
+Description=RustFS Prometheus Exporter
+Documentation=https://github.com/6547709/rustfs_exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rustfs-mon
+Group=rustfs-mon
+
+EnvironmentFile=/etc/rustfs-mon/exporter.env
+ExecStart=/usr/local/bin/rustfs-exporter
+WorkingDirectory=/var/lib/rustfs-mon
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+
+LimitNOFILE=65536
+TasksMax=2048
+MemoryMax=256M
+
+# Logs go to journald (use journalctl -u rustfs-exporter)
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
