@@ -61,6 +61,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: install PyYAML
+        run: pip install pyyaml
+
       - name: validate dashboard JSON
         run: |
           for f in dashboards/*.json; do
