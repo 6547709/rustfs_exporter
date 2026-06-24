@@ -36,31 +36,31 @@ func TestCollector_UpdateReplication(t *testing.T) {
 	})
 
 	expected := `
-# HELP rustfs_replication_pending_bytes Bytes pending replication.
+# HELP rustfs_replication_pending_bytes Bytes still waiting to be replicated (current backlog size). Unit: bytes.
 # TYPE rustfs_replication_pending_bytes gauge
 rustfs_replication_pending_bytes{bucket="alpha"} 100
-# HELP rustfs_replication_pending_count Objects pending replication.
+# HELP rustfs_replication_pending_count Objects still waiting to be replicated (current backlog count). Unit: objects.
 # TYPE rustfs_replication_pending_count gauge
 rustfs_replication_pending_count{bucket="alpha"} 2
-# HELP rustfs_replication_completed_bytes Bytes replicated in total.
+# HELP rustfs_replication_completed_bytes Total bytes successfully replicated since rustfs started (cumulative counter). Use rate(...[5m]) to get throughput. Unit: bytes.
 # TYPE rustfs_replication_completed_bytes gauge
 rustfs_replication_completed_bytes{bucket="alpha"} 500
-# HELP rustfs_replication_completed_count Objects replicated in total.
+# HELP rustfs_replication_completed_count Total objects successfully replicated since rustfs started (cumulative counter). Unit: objects.
 # TYPE rustfs_replication_completed_count gauge
 rustfs_replication_completed_count{bucket="alpha"} 5
-# HELP rustfs_replication_failed_count Failed objects in total.
+# HELP rustfs_replication_failed_count Total objects that failed replication since rustfs started (cumulative counter). Use rate(...[5m]) for failure rate. Unit: objects.
 # TYPE rustfs_replication_failed_count gauge
 rustfs_replication_failed_count{bucket="alpha"} 1
-# HELP rustfs_replication_bandwidth_current_bytes Current replication bandwidth.
+# HELP rustfs_replication_bandwidth_current_bytes Instantaneous replication bandwidth reported by rustfs admin API (summed across all target ARNs). Unit: bytes/sec.
 # TYPE rustfs_replication_bandwidth_current_bytes gauge
 rustfs_replication_bandwidth_current_bytes{bucket="alpha"} 1024
-# HELP rustfs_replication_queue_current_bytes Current queue depth in bytes.
+# HELP rustfs_replication_queue_current_bytes Current queue depth in bytes (sampled now). Unit: bytes.
 # TYPE rustfs_replication_queue_current_bytes gauge
 rustfs_replication_queue_current_bytes{bucket="alpha"} 50
-# HELP rustfs_replication_queue_last_minute_bytes Bytes enqueued in last minute.
+# HELP rustfs_replication_queue_last_minute_bytes Average queue depth in bytes over the last minute. Unit: bytes.
 # TYPE rustfs_replication_queue_last_minute_bytes gauge
 rustfs_replication_queue_last_minute_bytes{bucket="alpha"} 200
-# HELP rustfs_replication_queue_max_bytes Max queue depth since start.
+# HELP rustfs_replication_queue_max_bytes Maximum queue depth in bytes observed since rustfs started. Unit: bytes.
 # TYPE rustfs_replication_queue_max_bytes gauge
 rustfs_replication_queue_max_bytes{bucket="alpha"} 80
 `
