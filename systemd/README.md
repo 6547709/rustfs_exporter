@@ -1,126 +1,160 @@
-# systemd deployment — rustfs-exporter + VictoriaMetrics
+# systemd deployment
 
-Install both services as native Linux systemd units on a RHEL 9 / Rocky 9 host.
-The exporter serves `/metrics` on port 9090; VictoriaMetrics scrapes it and serves
-PromQL on port 8429.
+把 `rustfs-exporter` 和 `victoria-metrics` 装成 Linux 系统服务（systemd）。
+适用于 RHEL 9 / Rocky Linux 9 / AlmaLinux 9 / Ubuntu 22.04+。
 
-Grafana is **not** installed by this stack — see `../openshift/` for the remote
-OpenShift deployment, or run Grafana via the Docker Compose stack in `../`.
+完整文档在 [`../DEPLOY.md §2`](../DEPLOY.md#2-systemd)。本文档只列核心命令速查。
 
-## Quick start
+## 快速安装（5 分钟）
 
 ```bash
-# 1. Build the static exporter binary (from repo root)
-cd ../exporter
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../systemd/rustfs-exporter ./cmd/exporter
+cd deploy/monitoring
 
-# 2. Download VictoriaMetrics tarball
-cd ../systemd
-curl -fsSL -o vm.tgz \
-  https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.146.0/victoria-metrics-linux-amd64-v1.146.0.tar.gz
-# (for arm64, use victoria-metrics-linux-arm64-v1.146.0.tar.gz)
+# 1. 构建 exporter 二进制
+(cd exporter && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+  -o ../systemd/rustfs-exporter ./cmd/exporter)
 
-# 3. Fill in env vars
-cp env/rustfs-exporter.env.example /tmp/exporter.env
-$EDITOR /tmp/exporter.env   # set RUSTFS_ENDPOINT / ACCESS_KEY / SECRET_KEY
+# 2. 下载 VictoriaMetrics（amd64 或 arm64）
+VM_VER=v1.146.0
+curl -fsSL -o systemd/victoria-metrics \
+  "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VM_VER}/victoria-metrics-linux-amd64-${VM_VER}"
+chmod +x systemd/victoria-metrics
 
-# 4. Install as root
-sudo EXPORTER_BIN=../exporter/rustfs-exporter \
-     VM_TARBALL=vm.tgz \
+# 3. 填配置
+cp systemd/env/rustfs-exporter.env.example /tmp/exporter.env
+$EDITOR /tmp/exporter.env   # 改 RUSTFS_ENDPOINT / ACCESS_KEY / SECRET_KEY
+
+# 4. 安装
+sudo EXPORTER_BIN="$PWD/systemd/rustfs-exporter" \
      EXPORTER_ENV=/tmp/exporter.env \
-     ./install.sh
+     systemd/install.sh
 
-# 5. Verify
+# 5. 验证
 sudo systemctl status rustfs-exporter victoria-metrics
 curl -s localhost:9090/metrics | grep ^rustfs_up
 curl -s 'localhost:8429/api/v1/query?query=rustfs_up'
 ```
 
-## What gets installed
+## 安装后改配置
 
-| Path | Purpose |
+| 想改 | 改哪个文件 | 重启命令 |
+|---|---|---|
+| rustfs 凭证 | `/etc/rustfs-mon/exporter.env` | `sudo systemctl restart rustfs-exporter` |
+| scrape 间隔 | `/etc/rustfs-mon/victoria-metrics/scrape.yml` | `sudo systemctl restart victoria-metrics` |
+| VM 数据保留时间 | `/etc/systemd/system/victoria-metrics.service`（找 `-retentionPeriod=30d`） | `sudo systemctl daemon-reload && sudo systemctl restart victoria-metrics` |
+| VM 监听端口 | 同上（找 `-httpListenAddr=:8429`） | 同上 |
+| VM 内存上限 | 同上（找 `MemoryMax=2G`） | 同上 |
+| VM 数据目录 | 同上（找 `-storageDataPath=/var/lib/victoria-metrics`） | 同上 + rsync 数据 |
+
+## SELinux 速查
+
+```bash
+# 当前模式
+getenforce
+# Enforcing / Permissive / Disabled
+
+# 二进制 SELinux 标签（应该自动正确）
+ls -lZ /usr/local/bin/rustfs-exporter
+# unconfined_u:object_r:bin_t:s0
+
+# 临时切到 permissive（不强制但记录违规）
+sudo setenforce 0
+
+# 切回 enforcing
+sudo setenforce 1
+
+# 查看最近被 SELinux 拒绝的操作
+sudo ausearch -m AVC -ts recent | grep -E 'rustfs|victoria'
+
+# 永久改模式（需要 reboot）
+sudo sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config
+sudo reboot
+```
+
+完整 SELinux 三态自动测试：
+
+```bash
+sudo systemd/tests/selinux.sh enforcing
+sudo systemd/tests/selinux.sh permissive
+# disabled 模式需要改 /etc/selinux/config + reboot
+```
+
+## 数据和日志位置
+
+| 路径 | 内容 |
 |---|---|
-| `/usr/local/bin/rustfs-exporter` | exporter binary |
-| `/usr/local/bin/victoria-metrics` | VM binary |
-| `/etc/systemd/system/rustfs-exporter.service` | unit |
-| `/etc/systemd/system/victoria-metrics.service` | unit |
-| `/etc/rustfs-mon/exporter.env` | exporter config (sensitive) |
-| `/etc/rustfs-mon/victoria-metrics.env` | VM config (sensitive) |
-| `/etc/rustfs-mon/victoria-metrics/scrape.yml` | VM scrape config |
-| `/var/lib/rustfs-mon` | working directory |
-| `/var/lib/victoria-metrics` | VM data dir |
-| User `rustfs-mon` | system user (no shell, no home login) |
+| `/var/lib/victoria-metrics/` | VM 全部时序数据（删它 = 丢历史） |
+| `/var/lib/rustfs-mon/` | exporter 工作目录 |
+| `/etc/rustfs-mon/exporter.env` | exporter 配置（含 rustfs 凭证） |
+| `/etc/rustfs-mon/victoria-metrics.env` | VM 可选配置 |
+| `/etc/rustfs-mon/victoria-metrics/scrape.yml` | VM scrape 列表 |
+| `/etc/systemd/system/{rustfs-exporter,victoria-metrics}.service` | unit 文件 |
+| `/usr/local/bin/{rustfs-exporter,victoria-metrics}` | 二进制 |
+| 日志 | `sudo journalctl -u rustfs-exporter -f` / `-u victoria-metrics -f` |
 
-## SELinux
-
-The installer places binaries under `/usr/local/bin` (default label `bin_t`,
-runs in `unconfined_t`) and state under `/var/lib` + `/etc` (default labels
-`var_lib_t`, `etc_t`). Standard RHEL targeted policy allows all of this.
-
-The installer also runs `restorecon -R` on every directory it creates as a
-belt-and-suspenders measure.
-
-**Verification on a Rocky 9 / RHEL 9 host**:
+## 防火墙（firewalld）
 
 ```bash
-sudo ./tests/selinux.sh enforcing   # most strict
-sudo ./tests/selinux.sh permissive  # logs denials but doesn't enforce
-# For 'disabled': edit /etc/selinux/config → SELINUX=disabled, reboot,
-# then run ./tests/selinux.sh disabled (script skips mode change)
+sudo firewall-cmd --permanent --add-port=9090/tcp
+sudo firewall-cmd --permanent --add-port=8429/tcp
+sudo firewall-cmd --reload
 ```
 
-The test script checks that both services are `active`, the metrics endpoint
-returns `rustfs_up`, and `ausearch` reports zero AVC denials involving our
-binaries.
-
-## Custom SELinux confinement (optional, advanced)
-
-If your site policy requires our binaries to run in a confined domain rather
-than `unconfined_t`, drop a `.te` module that confines `/usr/local/bin/rustfs-exporter`
-and `/usr/local/bin/victoria-metrics` (allow network connect/bind to ports
-9090 and 8429; allow reading the env file and scrape config). Build with
-`checkmodule -M -o mod.mod conf.te && semodule_package -o mod.pp -m mod.mod && semodule -i mod.pp`.
-
-This is out of scope for the default install — most sites do not need it.
-
-## Hardening
-
-Both units apply systemd's modern sandbox directives:
-
-- `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`
-- `PrivateDevices`, `ProtectClock`, `ProtectKernelTunables`, `ProtectKernelModules`
-- `RestrictSUIDSGID`, `RestrictNamespaces`, `RestrictRealtime`
-- `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `SystemCallArchitectures=native`
-- `LockPersonality`, `MemoryDenyWriteExecute`
-- `CapabilityBoundingSet=` (empty)
-
-VM additionally needs `ReadWritePaths=/var/lib/victoria-metrics` because of
-its data dir. The exporter writes nothing.
-
-Resource limits:
-- exporter: `MemoryMax=256M`, `TasksMax=2048`
-- VM: `MemoryMax=2G`, `TasksMax=4096` (plus the in-VM `-memory.allowedPercent=40`)
-
-## Networking
-
-Both services bind on all interfaces by default (`*:9090` and `*:8429`).
-If the host is on a network where the OpenShift Grafana pod scrapes VM directly,
-restrict 8429 at the firewall to the cluster's egress IP range.
-
-Or enable VM HTTP basic auth by setting `VM_HTTP_AUTH_USER` / `VM_HTTP_AUTH_PASSWORD`
-in `/etc/rustfs-mon/victoria-metrics.env` and editing the unit's `ExecStart` to
-add `-httpAuth.username=${VM_HTTP_AUTH_USER} -httpAuth.password=${VM_HTTP_AUTH_PASSWORD}`.
-
-## Uninstall
+只允许特定 IP 访问 VM（推荐远程 OpenShift 抓取时）：
 
 ```bash
-sudo ./uninstall.sh            # keep config + data
-sudo ./uninstall.sh --purge-data  # also delete state dirs and user
+sudo firewall-cmd --permanent --add-rich-rule='
+  rule family=ipv4 source address=<CIDR>
+  port port=8429 protocol=tcp accept'
+sudo firewall-cmd --reload
 ```
 
-## Logs
+## 升级
 
 ```bash
-sudo journalctl -u rustfs-exporter -f
-sudo journalctl -u victoria-metrics -f
+# 升级 exporter
+cd deploy/monitoring
+(cd exporter && CGO_ENABLED=0 go build ... -o ../systemd/rustfs-exporter ./cmd/exporter)
+sudo install -m 0755 systemd/rustfs-exporter /usr/local/bin/rustfs-exporter
+sudo systemctl restart rustfs-exporter
+
+# 升级 VictoriaMetrics
+curl -fsSL -o /tmp/vm-new \
+  https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.150.0/victoria-metrics-linux-amd64-v1.150.0
+chmod +x /tmp/vm-new
+sudo systemctl stop victoria-metrics
+sudo install -m 0755 /tmp/vm-new /usr/local/bin/victoria-metrics
+sudo systemctl start victoria-metrics
 ```
+
+## 卸载
+
+```bash
+# 保留配置和数据
+sudo systemd/uninstall.sh
+
+# 完全删除（包括 /var/lib/victoria-metrics 历史）
+sudo systemd/uninstall.sh --purge-data
+```
+
+## 安装脚本做了什么（`install.sh`）
+
+1. 创建系统用户 `rustfs-mon`（`/sbin/nologin`，无 home 登录）
+2. 创建目录 `/etc/rustfs-mon`、`/var/lib/rustfs-mon`、`/var/lib/victoria-metrics`
+3. 跑 `restorecon` 标 SELinux 标签（标准路径有默认 policy）
+4. 复制二进制到 `/usr/local/bin/`
+5. 安装 unit 文件到 `/etc/systemd/system/`
+6. 首次启动填入 env 模板到 `/etc/rustfs-mon/`，权限 0640
+7. 填入 scrape 配置模板
+8. `systemctl daemon-reload && systemctl enable --now`
+
+## systemd unit 硬化（已应用）
+
+- `NoNewPrivileges`、`ProtectSystem=strict`、`ProtectHome`
+- `PrivateTmp`、`PrivateDevices`、`ProtectClock`、`ProtectKernelTunables`
+- `RestrictSUIDSGID`、`RestrictNamespaces`、`RestrictRealtime`
+- `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`
+- `LockPersonality`、`MemoryDenyWriteExecute`
+- `CapabilityBoundingSet=`（空）
+
+VM 额外：`ReadWritePaths=/var/lib/victoria-metrics`（数据目录）

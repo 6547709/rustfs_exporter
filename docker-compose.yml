@@ -4,14 +4,16 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      # 必填：被监控 rustfs 的 S3 API endpoint（不是 admin endpoint，二者同地址同端口）
-      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:?set RUSTFS_ENDPOINT in .env}
-      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?set in .env}
-      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?set in .env}
-      RUSTFS_REGION: ${RUSTFS_REGION:-us-east-1}
+      # 多 rustfs 模式（推荐）：JSON 数组一次配置所有目标
+      # 编辑 .env 里的 RUSTFS_TARGETS_JSON
+      RUSTFS_TARGETS_JSON: ${RUSTFS_TARGETS_JSON}
       RUSTFS_EXPORTER_LISTEN: ":9090"
       RUSTFS_EXPORTER_SCRAPE_INTERVAL: ${RUSTFS_EXPORTER_SCRAPE_INTERVAL:-30s}
-      # TLS 配置（生产环境强烈建议使用 CA_CERT 而非 SKIP_VERIFY）
+      # 如果 RUSTFS_TARGETS_JSON 留空，回退到单目标模式（向后兼容）：
+      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-}
+      RUSTFS_REGION: ${RUSTFS_REGION:-us-east-1}
       RUSTFS_TLS_SKIP_VERIFY: ${RUSTFS_TLS_SKIP_VERIFY:-false}
       RUSTFS_CA_CERT: ${RUSTFS_CA_CERT:-/etc/rustfs/ca.pem}
     volumes:

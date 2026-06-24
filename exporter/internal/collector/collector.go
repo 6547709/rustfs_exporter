@@ -6,25 +6,53 @@ import (
 	"log"
 	"time"
 
+	"github.com/local/rustfs-exporter/internal/config"
 	"github.com/local/rustfs-exporter/internal/metrics"
 	"github.com/local/rustfs-exporter/internal/rustfs"
 )
 
+// TargetClient 是一个 rustfs 目标的 S3 + admin 客户端对。
+type TargetClient struct {
+	Name  string
+	S3    *rustfs.S3Client
+	Admin *rustfs.AdminClient
+}
+
+// ScrapeWorker 周期性地从所有 rustfs 目标抓取指标。
 type ScrapeWorker struct {
-	S3       *rustfs.S3Client
-	Admin    *rustfs.AdminClient
+	Targets  []TargetClient
 	Metrics  *metrics.Collector
 	Interval time.Duration
 }
 
-func NewScrapeWorker(s3 *rustfs.S3Client, adm *rustfs.AdminClient, m *metrics.Collector, interval time.Duration) *ScrapeWorker {
-	return &ScrapeWorker{S3: s3, Admin: adm, Metrics: m, Interval: interval}
+func NewScrapeWorker(targets []config.Target, m *metrics.Collector, interval time.Duration) (*ScrapeWorker, error) {
+	tcs := make([]TargetClient, 0, len(targets))
+	for _, t := range targets {
+		tlsOpts := rustfs.TLSOptions{
+			CACertPath: t.CACertPath,
+			SkipVerify: t.TLSSkipVerify,
+		}
+		s3, err := rustfs.NewS3Client(t.Endpoint, t.Region, t.AccessKey, t.SecretKey, tlsOpts)
+		if err != nil {
+			return nil, err
+		}
+		adm, err := rustfs.NewAdminClient(t.Endpoint, t.Region, t.AccessKey, t.SecretKey, tlsOpts)
+		if err != nil {
+			return nil, err
+		}
+		tcs = append(tcs, TargetClient{Name: t.Name, S3: s3, Admin: adm})
+	}
+	return &ScrapeWorker{
+		Targets:  tcs,
+		Metrics:  m,
+		Interval: interval,
+	}, nil
 }
 
 func (w *ScrapeWorker) Run(ctx context.Context) {
 	t := time.NewTicker(w.Interval)
 	defer t.Stop()
-	w.cycle(ctx) // 立即跑一次
+	w.cycle(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -35,44 +63,62 @@ func (w *ScrapeWorker) Run(ctx context.Context) {
 	}
 }
 
+// cycle 对每个 target 跑一次完整抓取。
+// 任一 target 成功 ListBuckets → 整体 Up=1；全部失败 → Up=0。
 func (w *ScrapeWorker) cycle(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	buckets, err := w.S3.ListBuckets(ctx)
-	if err != nil {
-		// 仅在非 ctx 取消时把 up 置 0；ctx 超时属于正常停机。
-		if ctx.Err() == nil {
-			log.Printf("list buckets: %v", err)
-			w.Metrics.Up.Set(0)
-		}
-		return
-	}
-	w.Metrics.Up.Set(1)
-	for _, b := range buckets {
+	anyUp := false
+	for _, t := range w.Targets {
 		if ctx.Err() != nil {
 			return
 		}
-		stats, err := w.Admin.ReplicationMetrics(ctx, b)
+		if w.cycleTarget(ctx, t) {
+			anyUp = true
+		}
+	}
+	if ctx.Err() == nil {
+		w.Metrics.SetOverallUp(anyUp)
+	}
+}
+
+// cycleTarget 抓单个 target，返回 true 表示 ListBuckets 成功。
+func (w *ScrapeWorker) cycleTarget(ctx context.Context, t TargetClient) bool {
+	buckets, err := t.S3.ListBuckets(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return false
+		}
+		log.Printf("list buckets [%s] %s: %v", t.Name, t.S3.Endpoint, err)
+		return false
+	}
+	for _, b := range buckets {
+		if ctx.Err() != nil {
+			return true
+		}
+		stats, err := t.Admin.ReplicationMetrics(ctx, b)
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return true
 			}
-			// 目标端 / 未配置复制 = 正常状态，沉默跳过。
 			if errors.Is(err, rustfs.ErrNoReplication) {
 				continue
 			}
-			log.Printf("replication %s: %v", b, err)
+			log.Printf("replication [%s/%s]: %v", t.Name, b, err)
 			continue
 		}
-		w.Metrics.UpdateReplication(b, stats)
+		w.Metrics.UpdateReplication(t.Name, b, stats)
 	}
 	if ctx.Err() != nil {
-		return
+		return true
 	}
-	if h, err := w.Admin.Health(ctx); err == nil {
-		w.Metrics.UpdateHealth(h)
+	if h, err := t.Admin.Health(ctx); err == nil {
+		w.Metrics.UpdateHealth(t.Name, h)
 	} else {
-		log.Printf("health: %v", err)
+		if ctx.Err() == nil {
+			log.Printf("health [%s]: %v", t.Name, err)
+		}
 	}
+	return true
 }

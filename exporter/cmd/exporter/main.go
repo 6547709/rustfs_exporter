@@ -13,7 +13,6 @@ import (
 	"github.com/local/rustfs-exporter/internal/collector"
 	"github.com/local/rustfs-exporter/internal/config"
 	"github.com/local/rustfs-exporter/internal/metrics"
-	"github.com/local/rustfs-exporter/internal/rustfs"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -24,31 +23,23 @@ func main() {
 		fmt.Fprintln(os.Stderr, "config:", err)
 		os.Exit(1)
 	}
+	log.Printf("loaded %d rustfs target(s)", len(cfg.Targets))
+	for _, t := range cfg.Targets {
+		log.Printf("  - %s @ %s", t.Name, t.Endpoint)
+	}
 
 	m := metrics.NewCollector()
 	reg := prometheus.NewRegistry()
 	m.Register(reg)
 
-	tlsOpts := rustfs.TLSOptions{
-		CACertPath: cfg.CACertPath,
-		SkipVerify: cfg.TLSSkipVerify,
-	}
-
-	s3, err := rustfs.NewS3Client(cfg.Endpoint, cfg.Region, cfg.AccessKey, cfg.SecretKey, tlsOpts)
+	w, err := collector.NewScrapeWorker(cfg.Targets, m, cfg.ScrapeInterval)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "s3 client:", err)
-		os.Exit(1)
-	}
-	adm, err := rustfs.NewAdminClient(cfg.Endpoint, cfg.Region, cfg.AccessKey, cfg.SecretKey, tlsOpts)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "admin client:", err)
+		fmt.Fprintln(os.Stderr, "worker:", err)
 		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	w := collector.NewScrapeWorker(s3, adm, m, cfg.ScrapeInterval)
 	go w.Run(ctx)
 
 	mux := http.NewServeMux()

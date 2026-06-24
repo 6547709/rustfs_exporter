@@ -47,6 +47,10 @@ spec:
               value: "Admin"
             - name: GF_USERS_DEFAULT_THEME
               value: "dark"
+            # Grafana reads this on startup to build the datasource dropdown
+            # (the actual datasource list still comes from the ConfigMap below)
+            - name: GF_PATHS_PROVISIONING
+              value: "/etc/grafana/provisioning"
           resources:
             requests:
               cpu: 100m
