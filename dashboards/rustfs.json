@@ -542,7 +542,7 @@
       "description": "Average bytes replicated per second over the last 5 minutes (PromQL rate() over cumulative counter).",
       "targets": [
         {
-          "expr": "rate(rustfs_replication_completed_bytes[5m])",
+          "expr": "delta(rustfs_replication_completed_bytes[5m]) / 300",
           "refId": "A"
         }
       ],
@@ -625,7 +625,7 @@
       "description": "Average failed objects per second over the last 5 minutes.",
       "targets": [
         {
-          "expr": "rate(rustfs_replication_failed_count[5m])",
+          "expr": "delta(rustfs_replication_failed_count[5m]) / 300",
           "refId": "A"
         }
       ],
