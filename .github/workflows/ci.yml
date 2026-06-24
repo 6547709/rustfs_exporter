@@ -136,13 +136,14 @@ jobs:
 
       - name: package tarball
         working-directory: dist
+        env:
+          TARGET_BASE: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
         run: |
           mkdir -p staging
-          mv "${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch}" staging/
-          mv "${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch}.sha256" staging/
-          tarball="${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
-          tar -czf "$tarball" -C staging .
-          ls -lh "$tarball"
+          mv "${TARGET_BASE}" staging/
+          mv "${TARGET_BASE}.sha256" staging/
+          tar -czf "${TARGET_BASE}.tar.gz" -C staging .
+          ls -lh "${TARGET_BASE}.tar.gz"
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
