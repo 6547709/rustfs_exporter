@@ -223,8 +223,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name",
-        "graphMode": "area",
+        "textMode": "value",
+        "graphMode": "none",
         "colorMode": "value"
       },
       "fieldConfig": {
@@ -272,8 +272,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name",
-        "graphMode": "area",
+        "textMode": "value",
+        "graphMode": "none",
         "colorMode": "value"
       },
       "fieldConfig": {
@@ -321,8 +321,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name",
-        "graphMode": "area",
+        "textMode": "value",
+        "graphMode": "none",
         "colorMode": "value"
       },
       "fieldConfig": {
@@ -370,8 +370,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name",
-        "graphMode": "area",
+        "textMode": "value",
+        "graphMode": "none",
         "colorMode": "value"
       },
       "fieldConfig": {
@@ -419,8 +419,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name",
-        "graphMode": "area",
+        "textMode": "value",
+        "graphMode": "none",
         "colorMode": "value"
       },
       "fieldConfig": {
@@ -468,8 +468,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name",
-        "graphMode": "area",
+        "textMode": "value",
+        "graphMode": "none",
         "colorMode": "value"
       },
       "fieldConfig": {
