@@ -23,7 +23,7 @@
         "name": "bucket",
         "type": "query",
         "datasource": "VictoriaMetrics",
-        "query": "label_values((rustfs_replication_completed_count > 0), bucket)",
+        "query": "label_values(rustfs_replication_completed_count, bucket)",
         "refresh": 2,
         "multi": true,
         "includeAll": true
@@ -196,230 +196,297 @@
       "id": 101
     },
     {
-      "type": "table",
-      "title": "Per-Bucket Replication",
+      "type": "stat",
+      "title": "Pending Size",
       "gridPos": {
         "x": 0,
         "y": 6,
-        "w": 24,
-        "h": 10
+        "w": 8,
+        "h": 4
       },
       "targets": [
         {
-          "expr": "rustfs_replication_pending_bytes",
           "refId": "A",
-          "format": "table",
-          "instant": true,
-          "hide": false
-        },
-        {
-          "expr": "rustfs_replication_pending_count",
-          "refId": "B",
-          "format": "table",
-          "instant": true,
-          "hide": true
-        },
-        {
-          "expr": "rustfs_replication_completed_bytes",
-          "refId": "C",
-          "format": "table",
-          "instant": true,
-          "hide": true
-        },
-        {
-          "expr": "rustfs_replication_completed_count",
-          "refId": "D",
-          "format": "table",
-          "instant": true,
-          "hide": true
-        },
-        {
-          "expr": "rustfs_replication_failed_count",
-          "refId": "E",
-          "format": "table",
-          "instant": true,
-          "hide": true
-        },
-        {
-          "expr": "rustfs_replication_bandwidth_current_bytes",
-          "refId": "F",
-          "format": "table",
-          "instant": true,
-          "hide": true
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "max by (cluster, bucket) (rustfs_replication_pending_bytes{bucket=~\"$bucket\"})",
+          "legendFormat": "{{cluster}}"
         }
       ],
-      "transformations": [
-        {
-          "id": "merge"
-        }
-      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto",
-              "wrapText": false
-            }
+          "unit": "bytes",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "cluster"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Cluster"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "bucket"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Bucket"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rustfs_replication_pending_bytes"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "bytes"
-              },
-              {
-                "id": "displayName",
-                "value": "Pending Size"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "wrapText": false
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rustfs_replication_pending_count"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "displayName",
-                "value": "Pending Objects"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rustfs_replication_completed_bytes"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "bytes"
-              },
-              {
-                "id": "displayName",
-                "value": "Replicated Total"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "wrapText": false
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rustfs_replication_completed_count"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "displayName",
-                "value": "Replicated Objects"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rustfs_replication_failed_count"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "displayName",
-                "value": "Failed Objects"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "gauge",
-                  "mode": "gradient",
-                  "valueDisplayMode": "color"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rustfs_replication_bandwidth_current_bytes"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "Bps"
-              },
-              {
-                "id": "displayName",
-                "value": "Current Bandwidth"
-              }
-            ]
-          }
-        ]
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Pending Objects",
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 4
       },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "max by (cluster, bucket) (rustfs_replication_pending_count{bucket=~\"$bucket\"})",
+          "legendFormat": "{{cluster}}"
+        }
+      ],
       "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "showHeader": true
+        "textMode": "value_and_name",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Replicated Total",
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "max by (cluster, bucket) (rustfs_replication_completed_bytes{bucket=~\"$bucket\"})",
+          "legendFormat": "{{cluster}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Replicated Objects",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "max by (cluster, bucket) (rustfs_replication_completed_count{bucket=~\"$bucket\"})",
+          "legendFormat": "{{cluster}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Failed Objects",
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "max by (cluster, bucket) (rustfs_replication_failed_count{bucket=~\"$bucket\"})",
+          "legendFormat": "{{cluster}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Current Bandwidth",
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "max by (cluster, bucket) (rustfs_replication_bandwidth_current_bytes{bucket=~\"$bucket\"})",
+          "legendFormat": "{{cluster}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
       }
     },
     {
