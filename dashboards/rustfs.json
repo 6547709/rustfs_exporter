@@ -193,7 +193,8 @@
         "h": 1
       },
       "collapsed": false,
-      "id": 101
+      "id": 101,
+      "description": "6 metrics \u00d7 (cluster, bucket) combinations. Use cluster/bucket dropdowns at top to filter."
     },
     {
       "type": "stat",
@@ -211,7 +212,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "max by (cluster, bucket) (rustfs_replication_pending_bytes{bucket=~\"$bucket\"})",
+          "expr": "max by (cluster, bucket) (rustfs_replication_pending_bytes)",
           "legendFormat": "{{cluster}}"
         }
       ],
@@ -240,9 +241,9 @@
               }
             ]
           }
-        },
-        "overrides": []
-      }
+        }
+      },
+      "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
     },
     {
       "type": "stat",
@@ -260,7 +261,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "max by (cluster, bucket) (rustfs_replication_pending_count{bucket=~\"$bucket\"})",
+          "expr": "max by (cluster, bucket) (rustfs_replication_pending_count)",
           "legendFormat": "{{cluster}}"
         }
       ],
@@ -289,9 +290,9 @@
               }
             ]
           }
-        },
-        "overrides": []
-      }
+        }
+      },
+      "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
     },
     {
       "type": "stat",
@@ -309,7 +310,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "max by (cluster, bucket) (rustfs_replication_completed_bytes{bucket=~\"$bucket\"})",
+          "expr": "max by (cluster, bucket) (rustfs_replication_completed_bytes)",
           "legendFormat": "{{cluster}}"
         }
       ],
@@ -338,9 +339,9 @@
               }
             ]
           }
-        },
-        "overrides": []
-      }
+        }
+      },
+      "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
     },
     {
       "type": "stat",
@@ -358,7 +359,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "max by (cluster, bucket) (rustfs_replication_completed_count{bucket=~\"$bucket\"})",
+          "expr": "max by (cluster, bucket) (rustfs_replication_completed_count)",
           "legendFormat": "{{cluster}}"
         }
       ],
@@ -387,9 +388,9 @@
               }
             ]
           }
-        },
-        "overrides": []
-      }
+        }
+      },
+      "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
     },
     {
       "type": "stat",
@@ -407,7 +408,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "max by (cluster, bucket) (rustfs_replication_failed_count{bucket=~\"$bucket\"})",
+          "expr": "max by (cluster, bucket) (rustfs_replication_failed_count)",
           "legendFormat": "{{cluster}}"
         }
       ],
@@ -436,9 +437,9 @@
               }
             ]
           }
-        },
-        "overrides": []
-      }
+        }
+      },
+      "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
     },
     {
       "type": "stat",
@@ -456,7 +457,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "max by (cluster, bucket) (rustfs_replication_bandwidth_current_bytes{bucket=~\"$bucket\"})",
+          "expr": "max by (cluster, bucket) (rustfs_replication_bandwidth_current_bytes)",
           "legendFormat": "{{cluster}}"
         }
       ],
@@ -485,9 +486,9 @@
               }
             ]
           }
-        },
-        "overrides": []
-      }
+        }
+      },
+      "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
     },
     {
       "type": "row",
