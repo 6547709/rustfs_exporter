@@ -14,7 +14,7 @@
         "name": "cluster",
         "type": "query",
         "datasource": "VictoriaMetrics",
-        "query": "label_values(rustfs_up, cluster)",
+        "query": "label_values(rustfs_health_ready, cluster)",
         "refresh": 2,
         "multi": true,
         "includeAll": true
@@ -513,7 +513,7 @@
       },
       "targets": [
         {
-          "expr": "rustfs_replication_pending_bytes{cluster=~\"$cluster\",bucket=~\"$bucket\"}",
+          "expr": "rustfs_replication_pending_bytes{bucket=~\"$bucket\"}",
           "refId": "A"
         }
       ],
@@ -570,7 +570,7 @@
       "description": "Cumulative bytes successfully replicated since rustfs started. Counter, only goes up.",
       "targets": [
         {
-          "expr": "rustfs_replication_completed_bytes{cluster=~\"$cluster\",bucket=~\"$bucket\"}",
+          "expr": "rustfs_replication_completed_bytes{bucket=~\"$bucket\"}",
           "refId": "A"
         }
       ],
@@ -598,7 +598,7 @@
       "description": "Instantaneous replication bandwidth reported by rustfs admin (per-ARN aggregated).",
       "targets": [
         {
-          "expr": "rustfs_replication_bandwidth_current_bytes{cluster=~\"$cluster\",bucket=~\"$bucket\"}",
+          "expr": "rustfs_replication_bandwidth_current_bytes{bucket=~\"$bucket\"}",
           "refId": "A"
         }
       ],
@@ -657,17 +657,17 @@
       "description": "Bytes waiting in the replication queue. Current / Last minute average / Max since start.",
       "targets": [
         {
-          "expr": "rustfs_replication_queue_current_bytes{cluster=~\"$cluster\",bucket=~\"$bucket\"}",
+          "expr": "rustfs_replication_queue_current_bytes{bucket=~\"$bucket\"}",
           "refId": "A",
           "legendFormat": "current"
         },
         {
-          "expr": "rustfs_replication_queue_last_minute_bytes{cluster=~\"$cluster\",bucket=~\"$bucket\"}",
+          "expr": "rustfs_replication_queue_last_minute_bytes{bucket=~\"$bucket\"}",
           "refId": "B",
           "legendFormat": "avg last minute"
         },
         {
-          "expr": "rustfs_replication_queue_max_bytes{cluster=~\"$cluster\",bucket=~\"$bucket\"}",
+          "expr": "rustfs_replication_queue_max_bytes{bucket=~\"$bucket\"}",
           "refId": "C",
           "legendFormat": "max since start"
         }
