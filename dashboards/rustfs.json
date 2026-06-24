@@ -240,7 +240,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "decimals": 0
         }
       },
       "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
@@ -338,7 +339,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "decimals": 0
         }
       },
       "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
@@ -476,7 +478,17 @@
       "fieldConfig": {
         "defaults": {
           "unit": "Bps",
-          "mappings": [],
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "\u2014"
+                }
+              }
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -485,7 +497,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "decimals": 0
         }
       },
       "description": "Use the cluster dropdown at top to filter. With All selected, shows first series only (stat panel limitation)."
@@ -527,7 +540,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "decimals": 0
         }
       }
     },
@@ -540,10 +554,10 @@
         "w": 12,
         "h": 8
       },
-      "description": "Average bytes replicated per second over the last 5 minutes (PromQL rate() over cumulative counter).",
+      "description": "Instantaneous rate of completed_bytes (PromQL irate over 2m window). rustfs admin API current_bandwidth is unreliable (~100x lower than actual).",
       "targets": [
         {
-          "expr": "delta(rustfs_replication_completed_bytes[5m]) / 300",
+          "expr": "irate(rustfs_replication_completed_bytes[2m])",
           "refId": "A"
         }
       ],
@@ -554,7 +568,19 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10
-          }
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": 0,
+                "result": {
+                  "text": "0"
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -582,20 +608,21 @@
             "lineWidth": 2,
             "fillOpacity": 10,
             "gradientMode": "opacity"
-          }
+          },
+          "decimals": 0
         }
       }
     },
     {
       "type": "timeseries",
-      "title": "Current Bandwidth (from admin API)",
+      "title": "Reported Bandwidth (UNRELIABLE)",
       "gridPos": {
         "x": 12,
         "y": 25,
         "w": 12,
         "h": 8
       },
-      "description": "Instantaneous replication bandwidth reported by rustfs admin (per-ARN aggregated).",
+      "description": "\u26a0\ufe0f rustfs admin API current_bandwidth_bytes_per_sec underreports by ~100x. Use Replication Throughput instead.",
       "targets": [
         {
           "expr": "rustfs_replication_bandwidth_current_bytes{bucket=~\"$bucket\"}",
@@ -604,13 +631,24 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "Bps",
+          "unit": "KBs",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10
           },
-          "decimals": 0
+          "decimals": 1,
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": 0,
+                "result": {
+                  "text": "0"
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -641,7 +679,8 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "red"
-          }
+          },
+          "decimals": 0
         }
       }
     },
@@ -679,7 +718,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10
-          }
+          },
+          "decimals": 0
         }
       }
     }
