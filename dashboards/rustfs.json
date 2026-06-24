@@ -23,7 +23,7 @@
         "name": "bucket",
         "type": "query",
         "datasource": "VictoriaMetrics",
-        "query": "label_values(rustfs_replication_pending_bytes, bucket)",
+        "query": "label_values((rustfs_replication_completed_count > 0), bucket)",
         "refresh": 2,
         "multi": true,
         "includeAll": true
@@ -54,7 +54,7 @@
       },
       "targets": [
         {
-          "expr": "rustfs_health_ready{component=\"storage\"}",
+          "expr": "min by (component) (rustfs_health_ready{component=\"storage\"})",
           "refId": "A"
         }
       ],
@@ -89,7 +89,7 @@
       },
       "targets": [
         {
-          "expr": "rustfs_health_ready{component=\"iam\"}",
+          "expr": "min by (component) (rustfs_health_ready{component=\"iam\"})",
           "refId": "A"
         }
       ],
@@ -124,7 +124,7 @@
       },
       "targets": [
         {
-          "expr": "rustfs_health_ready{component=\"lock\"}",
+          "expr": "min by (component) (rustfs_health_ready{component=\"lock\"})",
           "refId": "A"
         }
       ],
@@ -210,7 +210,7 @@
           "refId": "A",
           "format": "table",
           "instant": true,
-          "hide": true
+          "hide": false
         },
         {
           "expr": "rustfs_replication_pending_count",
@@ -267,7 +267,37 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Value (pending_bytes)"
+              "options": "cluster"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cluster"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bucket"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Bucket"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rustfs_replication_pending_bytes"
             },
             "properties": [
               {
@@ -290,7 +320,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Value (pending_count)"
+              "options": "rustfs_replication_pending_count"
             },
             "properties": [
               {
@@ -306,7 +336,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Value (completed_bytes)"
+              "options": "rustfs_replication_completed_bytes"
             },
             "properties": [
               {
@@ -329,7 +359,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Value (completed_count)"
+              "options": "rustfs_replication_completed_count"
             },
             "properties": [
               {
@@ -345,7 +375,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Value (failed_count)"
+              "options": "rustfs_replication_failed_count"
             },
             "properties": [
               {
@@ -369,7 +399,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Value (bandwidth_current_bytes)"
+              "options": "rustfs_replication_bandwidth_current_bytes"
             },
             "properties": [
               {
@@ -511,7 +541,8 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10
-          }
+          },
+          "decimals": 0
         }
       }
     },
