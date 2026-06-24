@@ -8,16 +8,18 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
-  packages: write   # needed for ghcr.io push
+  contents: read   # default; release job upgrades to write
+  packages: write  # needed for ghcr.io push
 
 env:
   IMAGE_NAME: rustfs-exporter
+  BINARY_NAME: rustfs-exporter
 
 jobs:
-  # -------------------------------------------------------------------------
-  # Test + lint
-  # -------------------------------------------------------------------------
+  # ===========================================================================
+  # ALWAYS-RUN JOBS (on push, PR, and tags)
+  # ===========================================================================
+
   test:
     name: test (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
@@ -49,18 +51,56 @@ jobs:
         working-directory: exporter
         run: go build ./...
 
-      - name: upload coverage
-        if: matrix.go-version == '1.22' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: exporter/coverage.out
+  lint-config:
+    name: lint configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-  # -------------------------------------------------------------------------
-  # Build static binaries for direct host installation (systemd path)
-  # -------------------------------------------------------------------------
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: validate dashboard JSON
+        run: |
+          for f in dashboards/*.json; do
+            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" || exit 1
+          done
+          echo "dashboards-ok"
+
+      - name: validate OpenShift YAML
+        run: |
+          python3 -c "
+          import yaml, glob, sys
+          errs = 0
+          for f in sorted(glob.glob('openshift/*.yaml')):
+              docs = list(yaml.safe_load_all(open(f)))
+              docs = [d for d in docs if d]
+              if not docs:
+                  print('  EMPTY ' + f); errs += 1
+              else:
+                  for d in docs:
+                      k = d.get('kind','?'); n = d.get('metadata',{}).get('name','?')
+                      print('  OK   ' + f + '  ' + k + '/' + n)
+          sys.exit(errs)
+          "
+
+      - name: validate systemd unit syntax
+        run: |
+          for f in systemd/etc/*.service; do
+            for needle in '\[Unit\]' '\[Service\]' '\[Install\]' 'ExecStart='; do
+              grep -qE "$needle" "$f" || { echo "missing $needle in $f"; exit 1; }
+            done
+          done
+          echo "systemd-units-ok"
+
+  # ===========================================================================
+  # TAG-ONLY JOBS (only on tag pushes like v0.1.0, v1.2.3)
+  # ===========================================================================
+
   binary:
     name: binary (${{ matrix.os }}/${{ matrix.arch }})
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: test
     runs-on: ubuntu-latest
     strategy:
@@ -89,23 +129,31 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           mkdir -p ../dist
-          go build -trimpath -ldflags="-s -w" -o ../dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }} ./cmd/exporter
-          sha256sum ../dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }} > ../dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }}.sha256
+          out="../dist/${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch }}"
+          go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/exporter
+          sha256sum "$out" > "${out}.sha256"
+          chmod 0644 "$out" "${out}.sha256"
+
+      - name: package tarball
+        working-directory: dist
+        run: |
+          mkdir -p staging
+          mv "${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch}" staging/
+          mv "${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch}.sha256" staging/
+          tarball="${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+          tar -czf "$tarball" -C staging .
+          ls -lh "$tarball"
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }}
-            dist/rustfs-exporter-${{ matrix.os }}-${{ matrix.arch }}.sha256
-          retention-days: 30
+          name: ${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+          retention-days: 14
 
-  # -------------------------------------------------------------------------
-  # Build + push multi-arch Docker image to GitHub Container Registry
-  # -------------------------------------------------------------------------
   image:
     name: docker image (push on tag)
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -114,24 +162,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: derive image refs
-        id: refs
-        run: |
-          # main branch: :<sha>, latest on main pushes
-          # tags vX.Y.Z: :X.Y.Z, :X.Y, :latest
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TAG="${GITHUB_REF_NAME}"
-            # strip leading 'v'
-            VER="${TAG#v}"
-            TAGS="${VER},${VER%.*},latest"
-          else
-            SHA="${GITHUB_SHA::7}"
-            TAGS="${SHA}"
-          fi
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-
       - name: login to ghcr.io
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -141,64 +172,99 @@ jobs:
       - name: set up buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: build (no push on PR)
+      - name: derive image tags
+        id: tags
+        run: |
+          # Strip leading 'v' from the tag name
+          VER="${GITHUB_REF_NAME#v}"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
+      - name: build and push
         uses: docker/build-push-action@v6
         with:
           context: exporter
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.refs.outputs.tags != '' && format('ghcr.io/6547709/{0}:{1}', env.IMAGE_NAME, steps.refs.outputs.tags) || '' }}
+          push: true
+          tags: |
+            ghcr.io/6547709/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.version }}
+            ghcr.io/6547709/${{ env.IMAGE_NAME }}:latest
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+            org.opencontainers.image.version=${{ github.ref_name }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
 
-  # -------------------------------------------------------------------------
-  # Lint compose + dashboards (best-effort, fast)
-  # -------------------------------------------------------------------------
-  lint-config:
-    name: lint configs
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, binary]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: compose config
-        working-directory: deploy/monitoring
-        run: |
-          # generate minimal .env so compose can interpolate
-          cat > .env <<EOF
-          RUSTFS_ENDPOINT=http://placeholder:9000
-          RUSTFS_ACCESS_KEY=x
-          RUSTFS_SECRET_KEY=x
-          EOF
-          docker run --rm -v "$PWD:/work" -w /work docker/compose-bin:latest \
-            sh -c "docker compose config -q && echo compose-ok"
+      - name: download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-      - name: validate dashboard JSON
-        working-directory: deploy/monitoring
-        run: |
-          for f in dashboards/*.json; do
-            python3 -c "import json,sys; json.load(open('$f'))" || exit 1
-          done
-          echo "dashboards-ok"
+      - name: list downloaded artifacts
+        run: ls -lh artifacts/
 
-      - name: validate OpenShift YAML
-        working-directory: deploy/monitoring
+      - name: write release notes
         run: |
-          python3 -c "
-          import yaml, glob, sys
-          errs = 0
-          for f in sorted(glob.glob('openshift/*.yaml')):
-              docs = list(yaml.safe_load_all(open(f)))
-              docs = [d for d in docs if d]
-              if not docs:
-                  print(f'  EMPTY {f}'); errs += 1
-              else:
-                  for d in docs:
-                      k = d.get('kind','?'); n = d.get('metadata',{}).get('name','?')
-                      print(f'  OK {f}  {k}/{n}')
-          sys.exit(errs)
-          "
+          {
+            echo "## ${{ github.ref_name }}"
+            echo ""
+            echo "Pre-built static binaries for direct host installation (systemd deployment)."
+            echo ""
+            echo "### Downloads"
+            echo ""
+            echo "| File | Architecture |"
+            echo "|---|---|"
+            for arch_dir in artifacts/*/; do
+              arch_name=$(basename "$arch_dir")
+              echo "| \`rustfs-exporter-${arch_name}.tar.gz\` | ${arch_name} |"
+            done
+            echo ""
+            echo "Each tarball contains:"
+            echo "- \`rustfs-exporter-linux-{amd64,arm64}\` — static binary"
+            echo "- \`rustfs-exporter-linux-{amd64,arm64}.sha256\` — checksum"
+            echo ""
+            echo "### Docker"
+            echo ""
+            echo '```bash'
+            echo "docker pull ghcr.io/6547709/rustfs-exporter:${{ github.ref_name }}"
+            echo '```'
+            echo ""
+            echo "Multi-arch image: linux/amd64 + linux/arm64."
+            echo ""
+            echo "### Verify"
+            echo ""
+            echo '```bash'
+            echo "# extract"
+            echo "tar -xzf rustfs-exporter-linux-amd64.tar.gz"
+            echo "# check checksum"
+            echo "sha256sum -c rustfs-exporter-linux-amd64.sha256"
+            echo "# install"
+            echo "sudo install -m 0755 rustfs-exporter-linux-amd64 /usr/local/bin/rustfs-exporter"
+            echo '```'
+            echo ""
+            echo "See \`systemd/README.md\` for the full systemd install + SELinux notes."
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+          files: |
+            artifacts/**/*.tar.gz
