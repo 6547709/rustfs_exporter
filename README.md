@@ -50,6 +50,34 @@ xdg-open http://localhost:3000          # admin / admin
 
 ---
 
+## 它是怎么抓数据的
+
+exporter 通过 **同一个 `RUSTFS_ENDPOINT`**（同时也是 S3 API endpoint）调 **2 套 rustfs HTTP API**：
+
+| API | URL | 用途 | 凭证 |
+|---|---|---|---|
+| **S3** | `GET /`（`ListAllMyBuckets`） | 列所有桶 | SigV4 签名 |
+| **Admin API** | `GET /rustfs/admin/v3/replicationmetrics?bucket=X` | 每个桶的复制指标 | SigV4 签名（admin 复用 S3 凭证）|
+| **Admin API** | `GET /health/ready` | 集群健康（storage/iam/lock） | **公共端点，不签名** |
+
+**一个 exporter 进程 → 多个 rustfs 实例**：通过 `RUSTFS_TARGETS_JSON` 配置多个 endpoint，每个 endpoint 一个 (S3 + admin) 客户端对。
+
+详见 [`DEPLOY.md §2.4`](./DEPLOY.md) 和 exporter 源码 [`internal/rustfs/`](./exporter/internal/rustfs/)。
+
+## 已知数据源问题
+
+`rustfs admin API` 的 `current_bandwidth_bytes_per_sec` 字段**不可信**：
+- 小流量时 under-report ~100x
+- 大流量时 over-report ~200x
+- 这是 rustfs 端 bug，**exporter 改不了**
+
+**Dashboard 应对**：
+- 用 `irate(completed_bytes[5m])` 自己算真实 throughput（推荐）
+- 用 `max_over_time(irate(...)[1h:1m])` 看过去 1h 峰值（容量规划）
+- 原 API metric 在 dashboard 标为 "Reported Bandwidth (UNRELIABLE)"
+
+---
+
 ## 仓库结构
 
 ```
@@ -105,24 +133,32 @@ rustfs_exporter/
 
 13 个指标，所有复制/健康指标都带 `cluster` 标签（区分多个 rustfs 实例）+ `bucket` 标签：
 
-| 指标 | 类型 | 单位 | 标签 | 含义 |
-|---|---|---|---|---|
-| `rustfs_up` | gauge | 0/1 | — | exporter 上次抓取是否成功 |
-| `rustfs_health_ready` | gauge | 0/1 | `cluster`, `component` | storage/iam/lock 是否就绪 |
-| `rustfs_replication_pending_bytes` | gauge | bytes | `cluster`, `bucket` | 当前待复制字节数 |
-| `rustfs_replication_pending_count` | gauge | objects | `cluster`, `bucket` | 当前待复制对象数 |
-| `rustfs_replication_completed_bytes` | gauge | bytes | `cluster`, `bucket` | **累计**复制字节数（counter，用 `rate()` 取吞吐） |
-| `rustfs_replication_completed_count` | gauge | objects | `cluster`, `bucket` | **累计**复制对象数 |
-| `rustfs_replication_failed_count` | gauge | objects | `cluster`, `bucket` | **累计**失败对象数 |
-| `rustfs_replication_bandwidth_current_bytes` | gauge | bytes/sec | `cluster`, `bucket` | 当前瞬时带宽 |
-| `rustfs_replication_queue_current_bytes` | gauge | bytes | `cluster`, `bucket` | 当前队列字节数 |
-| `rustfs_replication_queue_last_minute_bytes` | gauge | bytes | `cluster`, `bucket` | 过去 1 分钟平均队列字节数 |
-| `rustfs_replication_queue_max_bytes` | gauge | bytes | `cluster`, `bucket` | 启动以来最大队列字节数 |
+| 指标 | 类型 | 单位 | 标签 | 含义 | API 端点 |
+|---|---|---|---|---|---|
+| `rustfs_up` | gauge | 0/1 | — | exporter 上次抓取是否成功 | (本地) |
+| `rustfs_health_ready` | gauge | 0/1 | `cluster`, `component` | storage/iam/lock 是否就绪 | `GET /health/ready` |
+| `rustfs_replication_pending_bytes` | gauge | bytes | `cluster`, `bucket` | 当前待复制字节数 | `GET /rustfs/admin/v3/replicationmetrics` |
+| `rustfs_replication_pending_count` | gauge | objects | `cluster`, `bucket` | 当前待复制对象数 | 同上 |
+| `rustfs_replication_completed_bytes` | gauge | bytes | `cluster`, `bucket` | **累计**复制字节数 | 同上 |
+| `rustfs_replication_completed_count` | gauge | objects | `cluster`, `bucket` | **累计**复制对象数 | 同上 |
+| `rustfs_replication_failed_count` | gauge | objects | `cluster`, `bucket` | **累计**失败对象数 | 同上 |
+| `rustfs_replication_bandwidth_current_bytes` | gauge | bytes/sec | `cluster`, `bucket` | 当前瞬时带宽（**不可信**）| 同上 |
+| `rustfs_replication_queue_current_bytes` | gauge | bytes | `cluster`, `bucket` | 当前队列字节数 | 同上 |
+| `rustfs_replication_queue_last_minute_bytes` | gauge | bytes | `cluster`, `bucket` | 过去 1 分钟平均队列字节数 | 同上 |
+| `rustfs_replication_queue_max_bytes` | gauge | bytes | `cluster`, `bucket` | 启动以来最大队列字节数 | 同上 |
 
 > `cluster` 标签是多 rustfs 部署时用来区分源/目标（值来自 `RUSTFS_TARGETS_JSON` 里每个目标的 `name`）。
 > 用 `instance` 标签会和 Prometheus 约定的 scrape target 标签冲突，所以这里用 `cluster`。
 
 单位换算在 Grafana 仪表板里自动处理（`1863193911` 显示为 `1.74 GiB`）。
+
+## 完整文档地图
+
+| 文档 | 内容 |
+|---|---|
+| **[DEPLOY.md](./DEPLOY.md)** | 完整部署指南（3 种模式 × step-by-step） |
+| **[STORAGE.md](./STORAGE.md)** | 数据存哪里、改保留时间、备份迁移 |
+| **[ACCEPTANCE.md](./ACCEPTANCE.md)** | live e2e 验收报告 |
 
 ---
 

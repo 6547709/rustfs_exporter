@@ -35,6 +35,41 @@
 
 ---
 
+## 0.5 数据源 — exporter 怎么抓数据
+
+**Exporter 通过同一个 `RUSTFS_ENDPOINT` 调 3 个 rustfs HTTP 端点：**
+
+| # | 端点 | 用途 | 凭证 |
+|---|---|---|---|
+| 1 | `GET /` (S3 ListAllMyBuckets) | 列所有桶 | SigV4 签名（`RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY`）|
+| 2 | `GET /rustfs/admin/v3/replicationmetrics?bucket=<name>` | 每个桶的复制指标（pending/completed/failed/bandwidth/queue）| 同 1（admin 复用 S3 凭证）|
+| 3 | `GET /health/ready` | 集群组件健康（storage/iam/lock）| **公共端点，不签名**|
+
+**为什么不直接用 Prometheus `servers` 抓 rustfs 自身的 `/metrics` 端点？**
+- rustfs 服务本身**不暴露** `/metrics` 端点（截至 v1.146）
+- rustfs 暴露的是 admin API JSON，需要解析 JSON 后转成 Prometheus 格式
+- 所以本项目**写了一个专用 exporter**（不是 generic scraper），Go 静态二进制 + distroless
+
+**多 rustfs 抓取**：通过 `RUSTFS_TARGETS_JSON` 配置多个 endpoint（每个一组独立凭证），exporter 在每个 scrape 周期对所有 target 串行调用 3 个端点，导出 13 个 metric × N 个 target。
+
+源码：
+- `exporter/internal/rustfs/s3.go` — S3 ListBuckets
+- `exporter/internal/rustfs/admin.go` — admin API 调用 + JSON 解析
+
+**已知数据源问题（rustfs 端 bug）**：
+
+`/rustfs/admin/v3/replicationmetrics` 里的 `current_bandwidth_bytes_per_sec` 字段**不可信**：
+
+- 小流量时 under-report ~100 倍（实际 100 B/s 时它报 1 B/s）
+- 大流量时 over-report ~200 倍（实际 100 MB/s 时它报 20 GB/s）
+
+**应对**：
+- Dashboard 不直接用这个 metric 显示带宽，改用 `irate(completed_bytes[5m])` 自己算真实吞吐量
+- 原 metric 仍导出但 panel 标为 "Reported Bandwidth (UNRELIABLE)"
+- 真正的峰值用 `max_over_time(irate(...)[1h:1m])` 算过去 1 小时最高
+
+---
+
 ## 1. docker compose（最快上手）
 
 **适用**：单机测试、demo、CI 环境。
